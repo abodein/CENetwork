@@ -9,6 +9,35 @@ knitr::opts_chunk$set(fig.align = "center")
 ```
 
 ```{r}
+# exemple of signature
+data("gene_signature")
+names(gene_signature)
+```
+
+get route
+```{r}
+signature <- gene_signature$`Acide Salicylique`
+sig.route <- get_route(network = network, signature = signature,input_type = "ENSEMBL", target_type = c("SMPDB", "DrugBank","CHEMBL"))
+```
+
+## Export to cytoscape
+
+Must have Cytoscape open
+```{r}
+export_to_cytoscape(x = sig.route, collectionName = "testCollection", networkName = "Salicylic Acid")
+
+RCy3::addCyEdges(source.target.list = sig.route$closest, edgeType = "")
+```
+
+hide nodes
+```{r}
+nodes2hide <- get_vertex_by_attr(sig.route$network, attribute = "type", value = "UNIPROT")
+hideNodes(nodes2hide)
+tmp <- data.frame(source = sig.route$closest$SeedName, target = sig.route$closest$NodeNames)
+for(i in 1:nrow(tmp)){
+    RCy3::addCyEdges(source.target.list = c(tmp[i,1], tmp[i,2]))
+}
+RCy3::addCyEdges(source.target.list = c(sig.route$closest$SeedName, sig.route$closest$NodeNames))
 
 ```
 
