@@ -1,43 +1,165 @@
 ---
-title: "NetworkCosmeticEU"
+title: "CENetwork"
+subtitle: "Liver Network Diffusion"
 output: 
-  BiocStyle::html_document
+  BiocStyle::html_document:
+      df_print: paged
 ---
 
-```{r, echo=FALSE}
+```{r setup, echo = FALSE, warning=FALSE, message=FALSE}
 knitr::opts_chunk$set(fig.align = "center")
+library(tidyverse)
+library(igraph)
+```
+
+# Introduction
+
+You are about to explore a multi-layered network specific to the liver.
+
+For this, you will need a list of molecules of interest as an entry point to the network.
+From this list, this tool offers to navigate through the layers and extract one subnetwork based on the overall network topology.
+
+The subnetwork is exportable to Cytoscape and can be further handled for a better interpretation.
+Alongside the subnetwork, we also produce a report of notable features from this result.
+
+In this manual, we detail the characteristics of the global liver network and guide you to produce sub-networks specific to the list of molecules of interest.
+
+# Prerequisite
+
+## Install and load the package
+
+```{r install, eval = FALSE}
+# install devtools
+install.packages("devtools")
+# install the package (last version)
+devtools::install_github("abodein/CENetwork")
+
+# load the package
+library(CENetwork)
+```
+
+## Install Cytoscape
+
+Install the latest version of Cytoscape: https://cytoscape.org/download.html
+
+Cytoscape must be open during the exportation process.
+Please check your connection via
+
+```{r, eval=FALSE}
+check_Cytoscape_connection()
+```
+```{r, echo=FALSE}
+# to remove when package is build
+RCy3::cytoscapePing()
+```
+
+# A word about the network
+
+```{r load_network_invisible, cache=TRUE, echo = FALSE}
+#data("liver1.2")  # when available
+load("../data/liver_1.3_network.rda")  # instead
+load("../data/liver_1.3_rwr_closest_dfr.rda")
+va <- as.data.frame(igraph::vertex_attr(liver_1.3_network))
+```
+
+- <span style="color:red">TODO: words about databases ... figure about the network </span> : 
+
+![](./img/fig_network_tmp.png)
+
+## Global network statistics
+
+The overall network is composed of 21,426 nodes spread over 4 layers: 4400 genes, 12898 proteins, 2114 drugs/compounds, 2014 pathways.
+
+The nodes are linked to each other with 611,142 interactions which represent gene-protein coding, PPI, TF-TG, drug-target, acts-in-pathway, ...
+
+
+
+```{r, eval = FALSE, echo = FALSE}
+vcount(liver_1.3_network)
+ecount(liver_1.3_network)
+va$type %>% table() %>% as.data.frame() %>% set_names("Layer", "Nb. Nodes") %>% mutate(Layer = factor(Layer, levels = c("gene", "protein", "drug/compound", "pathway"))) %>% arrange(Layer)
+```
+
+## Vertices Attributes
+
+Each node has attributes. Here is the complete list of attributes of this current version of the global network. Some attributes are shared between all the nodes and some are specific to the type of node. 
+
+Shared attributes:
+
+- name : 
+- display_name : 
+- type : 
+- link : 
+
+Gene nodes:
+
+- SYMBOL : 
+- ENSEMBL : 
+- TG : 
+- gene_hepatox : 
+- gene_hepatox_olivier : 
+- gene_hepatox_tripodi : 
+- <span style="color:red">custom_hepatox_custom_romain</span> : 
+
+Protein nodes:
+
+- UNIPROT : 
+- TF : 
+- protein_name : 
+- HPA_liver_specific : 
+- protein_hepatox : 
+- protein_hepatox_olivier : 
+- protein_hepatox_tripodi : 
+- <span style="color:red">protein_hepatox_custom_romain</span> : 
+
+
+Drug/Compound nodes :
+
+- drugbank_id : 
+- chembl_id : 
+- drug_name : 
+- IC50 : 
+- Molecule.Max.Phase : 
+- DILI_severity_class : 
+- vDILIConcern : 
+
+Pathway nodes :
+
+- pathway_name : 
+- pathway_database : 
+- pathway_id : 
+
+
+# What this package do
+
+image of the workflow
+- <span style="color:red">TODO: image of the workflow tmp </span> : 
+
+
+![](./img/fig_workflow_tmp.png)
+
+# Example: Acetaminophen
+
+gene signature of Acetaminophen =
+
+```{r}
+load("../data/signature_maison.rda")
+signature_acetaminophen <- signature_maison$`acetaminophen_all_all`
 ```
 
 ```{r}
-# exemple of signature
-data("gene_signature")
-names(gene_signature)
-```
+# load data RWR scores
+diffusion.res <- get_route(network = liver_1.3_network, closest_dfr = liver_1.3_rwr_closest_dfr, signature_vids = signature_acetaminophen, 
+          target_type = c("drug/compound", "pathway"))
 
-get route
-```{r}
-signature <- gene_signature$`Acide Salicylique`
-sig.route <- get_route(network = network, signature = signature,input_type = "ENSEMBL", target_type = c("SMPDB", "DrugBank","CHEMBL"))
-```
+# export to cytoscape
+signature_acetaminophen 
 
-## Export to cytoscape
-
-Must have Cytoscape open
-```{r}
-export_to_cytoscape(x = sig.route, collectionName = "testCollection", networkName = "Salicylic Acid")
-
-RCy3::addCyEdges(source.target.list = sig.route$closest, edgeType = "")
-```
-
-hide nodes
-```{r}
-nodes2hide <- get_vertex_by_attr(sig.route$network, attribute = "type", value = "UNIPROT")
-hideNodes(nodes2hide)
-tmp <- data.frame(source = sig.route$closest$SeedName, target = sig.route$closest$NodeNames)
-for(i in 1:nrow(tmp)){
-    RCy3::addCyEdges(source.target.list = c(tmp[i,1], tmp[i,2]))
-}
-RCy3::addCyEdges(source.target.list = c(sig.route$closest$SeedName, sig.route$closest$NodeNames))
-
+# generate report
+diffusion.report <- report(diffusion.res)
+diffusion.report$drugs
+diffusion.report$GOs
+# ...
+# Build report
 ```
 
