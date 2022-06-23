@@ -1,4 +1,8 @@
 #' @importFrom NetPathMiner plotCytoscapeGML
+#' @importFrom checkmate assert_string
+#' @importFrom RCy3 cytoscapePing
+#' @importFrom RCy3 createNetworkFromIgraph
+#' @importFrom RCy3  setVisualStyle
 #' @export
 export_to_cytoscape <- function(x, collectionName = "myNewCollection", networkName = "myNetwork"){
 
@@ -33,7 +37,6 @@ export_to_cytoscape <- function(x, collectionName = "myNewCollection", networkNa
     # build and set visual style
     build_visual_style(style.name = "cosmEU_Style", network = networkName)
     RCy3::setVisualStyle("cosmEU_Style", network = networkName)
-    # hideEdges()
 }
 
 #' build visual style
@@ -46,14 +49,8 @@ build_visual_style <- function(style.name = "cosmEU_Style", network){
 
     nodeLabels <- RCy3::mapVisualProperty('node label','id','p')
 
-    # fill color
-    fill_color <- tribble(
-        ~type, ~hex,
-      "ENSEMBL", "#96cbff",
-      "UNIPROT", "#FFA500",
-        "SMPDB", "#f77272",
-     "DrugBank", "#fcc2f6",
-       "CHEMBL", "#00FF00")
+    fill_color <- data.frame(type =  c("gene", "protein", "drug/compound", "pathway", "GO", "side effect"),
+                             hex = c("#388ECC", "#F68B33", "#C2C2C2", "#009E73", "#CC79A7", "#F0E442"))
 
     nodeFills <- RCy3::mapVisualProperty(visual.prop = 'node fill color',
                                    table.column = 'type',
@@ -63,15 +60,7 @@ build_visual_style <- function(style.name = "cosmEU_Style", network){
                                    network = network)
 
     nodeLabels <- RCy3::mapVisualProperty('node label','display_name','p')
-    # edgeLineStyle <- mapVisualProperty('EDGE_LINE_TYPE', table.column = "interaction",
-    #                                    mapping.type = 'd',
-    #                                    table.column.values = c("interacts with","closest"),
-    #                                    visual.prop.values = c("SOLID", "DOTS"),
-    #                                    network = network)
 
-    # arrowShapes <- mapVisualProperty('Edge Target Arrow Shape','interaction','d',
-    #                                  c("activates","inhibits","interacts"),c("Arrow","T","None"))
-    # edgeWidth <- mapVisualProperty('edge width','weight','p')
 
     # and then create the style
     RCy3::createVisualStyle(style.name, defaults, list(nodeFills, nodeLabels))
