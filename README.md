@@ -26,7 +26,11 @@ However, we plan to include more organ specific networks to evaluate other aspec
 
 ### Liver Network v1
 
-The Liver network is composed of 6 layers:
+![](./vignettes/img/fig_network_schema.png)
+
+The Liver network is composed of 6 layers. 
+The layer are connected to each other based on the above figure.
+The layer compositions is described in the table below.
 
 | Layer|  Nb. nodes|
 |:-------------|-----:|
@@ -41,13 +45,13 @@ The Liver network is composed of 6 layers:
 
 ### Latest `GitHub` Version
 
-Install the devtools package in R, then load it and install the latest stable version of `` from `GitHub`
+Install the devtools package in R, then load it and install the latest stable version of from `GitHub`
 
 ```r 
 ## install devtools if not installed
 if (!requireNamespace("devtools", quietly = TRUE))
     install.packages("devtools")
-    
+
 # install the package (last version)
 devtools::install_github("abodein/CENetwork")
 
