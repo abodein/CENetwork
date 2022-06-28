@@ -13,12 +13,13 @@
 #' @section Diffusion:
 
 #' \describe{
-#'   \item{`get_route`}{}
+#'   \item{`get_route`}{get diffusion result from a list of seeds}
 #'   }
 #'
 #' @section Export to Cytoscape:
 #' \describe{
-#'   \item{`export_to_cytoscape`}{}
+#'   \item{`export_to_cytoscape`}{Export to cytoscape (need to be open)}
+#'   \item{`apply_custom_theme`}{Apply custom theme such as node file color, border color, ... on cytoscape graph}
 #'  }
 #'
 #' @section Diffusion reports:
