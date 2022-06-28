@@ -38,8 +38,8 @@ The layer compositions is described in the table below.
 |protein       | 12898|
 |drug/compound |  2114|
 |pathway       |  2014|
-|side effect   |   147|
-|GO            |    58|
+|side effect   |  2167|
+|GO            |    55|
 
 ## Install
 
