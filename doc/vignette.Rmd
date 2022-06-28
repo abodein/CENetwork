@@ -68,6 +68,7 @@ Proteins were connected to an in-house gene coregulation network (ARACNE https:/
 Drugs were extracted from DrugBank and were linked to their protein targets (https://drugbank.ca).
 We used CHEMBL to add IC50 information when available for the HepG2 cell line and if the compound and its targets were present in the network.
 Side Effects were extracted from SIDER and were linked to drugs (http://sideeffects.embl.de).
+Drug Induced Liver Injury (DILI) scores were added to the drugs (https://www.fda.gov/science-research/bioinformatics-tools/liver-toxicity-knowledge-base-ltkb).
 
 Proteins were also linked to Reactome pathways (https://reactome.org).
 
