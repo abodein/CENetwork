@@ -9,7 +9,7 @@
 #' @return a data.frame
 
 #' @import progress
-#' @import magrittr
+#' @importFrom  magrittr %>%
 #' @importFrom igraph V
 #' @importFrom RandomWalkRestartMH create.multiplex
 #' @importFrom RandomWalkRestartMH compute.adjacency.matrix
@@ -17,7 +17,7 @@
 #' @importFrom RandomWalkRestartMH Random.Walk.Restart.Multiplex
 #' @importFrom purrr set_names imap_dfr
 #' @importFrom tibble column_to_rownames
-#' @importFrom netOmics remove_unconnected_nodes
+#' @import netOmics
 
 
 RWR_build_complete <- function (X, verbose = TRUE)
@@ -61,10 +61,11 @@ RWR_build_complete <- function (X, verbose = TRUE)
 #'
 #' From RWR result matrix generate closest dfr based on "type" attribue
 #'
+#' @param network
 #' @param res_tmp_matrix
 #'
 #' @import progress
-#' @import magrittr
+#' @importFrom magrittr %>%
 #' @importFrom igraph vertex_attr
 #' @importFrom purrr set_names imap_dfr
 #' @importFrom tibble column_to_rownames

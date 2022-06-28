@@ -1,9 +1,31 @@
-#' @importFrom NetPathMiner plotCytoscapeGML
+#' Export to Cytoscape
+#'
+#' This function export an igraph object to cytoscape..
+#'
+#' @param x igraph object, the network to export
+#' @param collectionName character, name of collection inside Cytoscape
+#' @param networkName character, name of network inside Cytoscape
+
+#' @examples
+#' \donttest{
+#' data(liver_1.3_network)
+#' data(liver_1.3_rwr_closest_dfr)
+#' data(signature_maison)
+#'
+#' signature_vids <- signature_maison$acetaminophen_all_all
+#' res.diffusion <- get_route(liver_1.3_network, liver_1.3_rwr_closest_dfr, signature_vids, target_type = c("drug/compound", "pathway", "side_effect", "GO"))
+#' x <- res.diffusion
+#' export_to_cytoscape(res.diffusion)
+#' apply_custom_theme()
+#' }
+#'
 #' @importFrom checkmate assert_string
 #' @importFrom RCy3 cytoscapePing
 #' @importFrom RCy3 createNetworkFromIgraph
-#' @importFrom RCy3  setVisualStyle
+#' @importFrom RCy3 setVisualStyle
 #' @export
+#'
+#'
 export_to_cytoscape <- function(x, collectionName = "myNewCollection", networkName = "myNetwork"){
 
     # check x
@@ -11,6 +33,8 @@ export_to_cytoscape <- function(x, collectionName = "myNewCollection", networkNa
 
     checkmate::assert_string(collectionName)
     checkmate::assert_string(networkName)
+
+    network <- x$network
 
     # RCy3
     RCy3::cytoscapePing()  # stop execution if status != 200
@@ -24,86 +48,96 @@ export_to_cytoscape <- function(x, collectionName = "myNewCollection", networkNa
         paste0("The network ", networkName, " already exists and will be overwritten.")
     }
 
-
     # create network
-    RCy3::createNetworkFromIgraph(igraph = x$network, title = networkName,
+    RCy3::createNetworkFromIgraph(igraph = network, title = networkName,
                                   collection = collectionName)
-    # from dataframes
-    # edge_node_list <- convert_get_route_to_data.frames(x)
-    # RCy3::createNetworkFromDataFrames(edge_node_list$node,edge_node_list$edge,
-    #                                   title=networkName, collection = collectionName)
 
-
-    # build and set visual style
-    build_visual_style(style.name = "cosmEU_Style", network = networkName)
-    RCy3::setVisualStyle("cosmEU_Style", network = networkName)
 }
 
-#' build visual style
-build_visual_style <- function(style.name = "cosmEU_Style", network){
+#' apply_custom_theme
+#'
+#' This function apply custom theme to current network in cytoscape. Here is the description of the theme.
+#'
+#' \describe{
+#'   \item{Fill color}{(based on type) gene = blue, protein = orange, GO = grey, side_effect = green, drug/compound = pink, pathway = red}
+#'   \item{Node shape}{input diffusion = ELLIPSE, other = ROUND_RECTANGLE}
+#'   \item{Node size}{(based on type) gene = 20, protein = 20, GO = 35, side_effect = 40, drug/compound = 40, pathway = 35.}
+#'   \item{Node border}{gene_hepatox = red, other = black}
+#'   }
+#'
+#' @seealso export_to_cytoscape
+#'
+#' @importFrom tibble tribble
+#' @importFrom RCy3 setNodeLabelMapping
+#' @importFrom RCy3 setEdgeLineWidthDefault
+#' @importFrom RCy3 setEdgeColorDefault
+#' @importFrom RCy3 setNodeColorMapping
+#' @importFrom RCy3 setNodeShapeMapping
+#' @importFrom RCy3 setNodeSizeMapping
+#' @importFrom RCy3 setNodeBorderWidthDefault
+#' @export
+apply_custom_theme <- function(){
 
-    defaults <- list(NODE_SHAPE="ROUND_RECTANGLE",
-                     NODE_SIZE=30,
-                     EDGE_TRANSPARENCY=120,
-                     NODE_LABEL_POSITION="C,C,c,0.00,0.00")
+    # customized default style ------------------------------------------------
+    ## display name
+    RCy3::setNodeLabelMapping('display_name')
 
-    nodeLabels <- RCy3::mapVisualProperty('node label','id','p')
+    RCy3::setEdgeLineWidthDefault(new.width = 0.5)
+    RCy3::setEdgeColorDefault(new.color = "#d3d3d3")
 
-    fill_color <- data.frame(type =  c("gene", "protein", "drug/compound", "pathway", "GO", "side effect"),
-                             hex = c("#388ECC", "#F68B33", "#C2C2C2", "#009E73", "#CC79A7", "#F0E442"))
+    ## color
+    fill_color <- tibble::tribble(~type, ~color,
+                                  "gene", "#99ffff",
+                                  "protein", "#ffcc99",
+                                  "GO", "#d9d9d9",
+                                  "side_effect", "#b3ff99",
+                                  "drug/compound", "#ffccff",
+                                  "pathway", "#ff9999")
 
-    nodeFills <- RCy3::mapVisualProperty(visual.prop = 'node fill color',
-                                   table.column = 'type',
-                                   mapping.type = 'd',
-                                   table.column.values = fill_color$type,
-                                   visual.prop.values = fill_color$hex,
-                                   network = network)
+    RCy3::setNodeColorMapping(table.column = "type",
+                              mapping.type = 'd',
+                              table.column.values = fill_color$type,
+                              colors = fill_color$color)
 
-    nodeLabels <- RCy3::mapVisualProperty('node label','display_name','p')
+    ## shape based on input diffusion
+    node_shape <- tibble::tribble(~input_diffusion, ~shape,
+                                  FALSE, "ROUND_RECTANGLE",
+                                  TRUE, "ELLIPSE")
 
+    RCy3::setNodeShapeMapping(table.column = 'input_diffusion',
+                              table.column.values = node_shape$input_diffusion,
+                              shapes = node_shape$shape,
+                              default.shape = "ROUND_RECTANGLE")
 
-    # and then create the style
-    RCy3::createVisualStyle(style.name, defaults, list(nodeFills, nodeLabels))
-    # createVisualStyle(style.name, defaults, list(nodeFills, nodeLabels, edgeLineStyle))
+    # border color
+    border_color <- tibble::tribble(~hepatox, ~color,
+                                    "TRUE", "#ff0000",
+                                    "FALSE", "#000000",
+                                    "NA", "#000000")
+
+    RCy3::setNodeBorderWidthDefault(1)
+    RCy3::setNodeBorderColorMapping(table.column = 'gene_hepatox',
+                                    table.column.values = border_color$hepatox,
+                                    mapping.type = "d",
+                                    colors = border_color$color,
+                                    default.color = "#000000")
+
+    # size
+    node_size <- tibble::tribble(~type, ~size,
+                                 "gene", 20,
+                                 "protein", 20,
+                                 "GO", 35,
+                                 "side_effect", 40,
+                                 "drug/compound", 40,
+                                 "pathway", 35)
+
+    RCy3::setNodeSizeMapping(table.column = "type",
+                             mapping.type = 'd',
+                             table.column.values = node_size$type,
+                             sizes = node_size$size,
+                             default.size =10)
 }
 
-#' @importFrom NetPathMiner plotCytoscapeGML
-export_to_cytoscape_w_netPathMiner <- function(x, file, collectionName = "myNewCollection", networkName = "myNetwork"){
 
-    # check x
-    stopifnot(is(x, "igraph"))
 
-    # check file
-    stopifnot(checkmate::checkPathForOutput(file))
-
-    # check layout
-    NetPathMiner::plotCytoscapeGML(x, file=file)
-}
-
-convert_igraph_to_dataframes <- function(x){
-    Vx <- vertex_attr(x) %>% as.data.frame()
-    Ex <- x %>% as_long_data_frame() %>% dplyr::select(from_name, to_name, from_type, to_type) %>%
-        mutate(interaction = "interacts with")
-
-    return(list(V = Vx, E = Ex))
-}
-
-convert_get_route_to_data.frames <- function(x){
-    tmp <- convert_igraph_to_dataframes(x$network)
-
-    join.df <- as.data.frame(tmp$V) %>% dplyr::select(name, type)
-
-    Ex_closest <- x$closest %>% dplyr::select(SeedName, NodeNames) %>%
-        left_join(join.df, c("SeedName" = "name")) %>%
-        dplyr::rename("from_type" = "type") %>%
-        left_join(join.df, c("NodeNames" = "name")) %>%
-        purrr::set_names("from_name", "to_name", "from_type", "to_type") %>%
-        mutate(interaction = "closest")
-
-    new_E <- rbind(tmp$E, Ex_closest) %>%
-        purrr::set_names("source", "target", "from_type", "to_type", "interaction")
-    new_V <- tmp$V %>% mutate(id = name)
-
-    return(list(node = tmp$V, edge = new_E))
-}
 

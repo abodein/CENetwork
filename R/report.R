@@ -1,25 +1,43 @@
 #' Report
 #'
-#' Reporting remarkable nodes within the network
+#' Reporting remarkable nodes within the network. The function produce a list of data.frame containing the valuable informations.
 #'
-#' @param x
+#' @return
+#' A list of data.frame:
+#' \describe{
+#'   \item{`degree_signature`}{degree of input nodes and hepatox infos}
+#'   \item{`drugs`}{drug infos with DILI score, IC50}
+#'   \item{`drugs.targets`}{drug to protein target}
+#'   \item{`drugs.side_effect`}{drug side effects}
+#'   \item{`drug.dist.signature`}{closest input node(s) for each drug and their distance}
+#'   \item{`pathways`}{pathway infos}
+#'   \item{`pathways.dist.signature`}{closest input node(s) for each pathway and their distance}
+#'   \item{`GOs`}{GO infos}
+#'   \item{`GO.dist.signature`}{closest input node(s) for each GO and their distance}
+#'   }
+#'
+#' @param x diffusion results from get_route()
 #'
 #' @examples
 #' data(liver_1.3_network)
 #' data(liver_1.3_rwr_closest_dfr)
 #' data(signature_maison)
-#' signature_vids <-  signature_maison$`valproic acid_all_all`
-#' res.diffusion <- get_route(liver_1.3_network, liver_1.3_rwr_closest_dfr, c(signature_vids, "DB00313"), target_type = c("drug/compound", "pathway", "side effect"))
-#'
-#' x <- res.diffusion
+#' signature_vids <-  signature_maison$`acetaminophen_all_all`
+#' res.diffusion <- get_route(liver_1.3_network, liver_1.3_rwr_closest_dfr, c(signature_vids, "DB00313"), target_type = c("drug/compound", "pathway"))
 #' res_report <- report(res.diffusion)
 #'
-report <- function(x, pathout = ""){
+#' @importFrom igraph vertex_attr make_ego_graph distances degree
+#' @importFrom dplyr filter select mutate bind_rows rename_with left_join pull group_by top_n ungroup arrange across
+#' @importFrom purrr imap set_names is_logical
+#' @importFrom tibble rownames_to_column
+#' @importFrom  tidyr pivot_longer replace_na
+#' @export
+report <- function(x){
 #    checkmate::check_access("")
 
     stopifnot(is(x, "get_route.res"))
 
-    va <- vertex_attr(x$network) %>% as.data.frame()
+    va <- igraph::vertex_attr(x$network) %>% as.data.frame()
 
     # 1. find drugs and DILI scores
     drugs <- va %>% dplyr::filter(type == "drug/compound") %>%
@@ -29,49 +47,49 @@ report <- function(x, pathout = ""){
     drugs.ego <- igraph::make_ego_graph(graph = x$network, order = 1, nodes = drugs$name)
     names(drugs.ego) <- drugs$name
     drugs.targets <- purrr::imap(drugs.ego,
-                                 ~{vertex_attr(.x) %>% as.data.frame %>%
-                                         filter(type == "protein") %>%
+                                 ~{igraph::vertex_attr(.x) %>% as.data.frame %>%
+                                         dplyr::filter(type == "protein") %>%
                                          dplyr::select(name) %>%
-                                         mutate(drug_seed = .y)}) %>%
+                                         dplyr::mutate(drug_seed = .y)}) %>%
         dplyr::bind_rows() %>%
         purrr::set_names(c("drug_target", "name"))  %>%  # name = drug id
-        left_join(va %>% dplyr::select(name, display_name, protein_name) %>% rename_with(~paste0(.x, ".target")), by = c("drug_target" = "name.target")) %>%
-        left_join(va %>% dplyr::select(name, display_name) %>% rename_with(~paste0(.x, ".drug")), by = c("name" = "name.drug")) %>%
+        dplyr::left_join(va %>% dplyr::select(name, display_name, protein_name) %>% dplyr::rename_with(~paste0(.x, ".target")), by = c("drug_target" = "name.target")) %>%
+        dplyr::left_join(va %>% dplyr::select(name, display_name) %>% dplyr::rename_with(~paste0(.x, ".drug")), by = c("name" = "name.drug")) %>%
         dplyr::select(display_name.drug, name, display_name.target, protein_name.target) %>%
         purrr::set_names("drug_name", "drug_id", "target_id", "target_name")
 
     # 1.2 drug distance to signature
     drug.dist.signature.gene <- igraph::distances(graph = x$network, to = drugs$name,
-                                                  v = va %>% dplyr::filter(input_diffusion) %>% pull(name)) %>%
+                                                  v = va %>% dplyr::filter(input_diffusion) %>% dplyr::pull(name)) %>%
         as.data.frame() %>%
     # purrr::imap_dfr(drug.dist.signature.gene, ~ data.frame(signature_vids = rownames(drug.dist.signature.gene)[which(.x == min(.x))]) %>%
     #                 mutate(drug = .y)) %>%
         tibble::rownames_to_column("signature_vids") %>%
         tidyr::pivot_longer(names_to = "drug", values_to = "distance", -signature_vids) %>%
-        group_by(drug) %>% top_n(wt = distance, n = -1) %>% dplyr::ungroup() %>%
+        dplyr::group_by(drug) %>% dplyr::top_n(wt = distance, n = -1) %>% dplyr::ungroup() %>%
         # left_join with va
-        left_join(va %>% dplyr::select(name, display_name, gene_hepatox_Toxicology2014, gene_hepatox_ToxicologyInVitro2020) %>% rename_with(~paste0(.x, ".sig")), by = c("signature_vids" = "name.sig")) %>%
-        left_join(va %>% dplyr::select(name, display_name) %>%
-                      rename_with(~paste0(.x, ".drug")), by = c("drug" = "name.drug")) %>%
+        dplyr::left_join(va %>% dplyr::select(name, display_name, gene_hepatox_Toxicology2014, gene_hepatox_ToxicologyInVitro2020) %>% dplyr::rename_with(~paste0(.x, ".sig")), by = c("signature_vids" = "name.sig")) %>%
+      dplyr::left_join(va %>% dplyr::select(name, display_name) %>%
+                         dplyr::rename_with(~paste0(.x, ".drug")), by = c("drug" = "name.drug")) %>%
         dplyr::select(display_name.drug, display_name.sig, distance,  gene_hepatox_Toxicology2014.sig, gene_hepatox_ToxicologyInVitro2020.sig, drug, signature_vids) %>%
         purrr::set_names(c("drug_name","signature_name", "distance", "gene_hepatox_Toxicology2014", "gene_hepatox_ToxicologyInVitro2020", "drug_node_id", "signature_node_id"))
 
     # 1.3 drug side effects
     drugs.se <- purrr::imap(drugs.ego,
-                                 ~{vertex_attr(.x) %>% as.data.frame %>%
-                                         filter(type == "side effect") %>%
+                                 ~{igraph::vertex_attr(.x) %>% as.data.frame %>%
+                                     dplyr::filter(type == "side_effect") %>%
                                          dplyr::select(name) %>%
-                                         mutate(drug_seed = .y)}) %>%
+                                     dplyr::mutate(drug_seed = .y)}) %>%
         dplyr::bind_rows() %>%
         purrr::set_names(c("drug_side_effect", "name"))  %>%  # name = drug id
-        left_join(va %>% dplyr::select(name, display_name) %>% rename_with(~paste0(.x, ".target")), by = c("drug_side_effect" = "name.target")) %>%
-        left_join(va %>% dplyr::select(name, display_name) %>% rename_with(~paste0(.x, ".drug")), by = c("name" = "name.drug")) %>%
+      dplyr::left_join(va %>% dplyr::select(name, display_name) %>% dplyr::rename_with(~paste0(.x, ".target")), by = c("drug_side_effect" = "name.target")) %>%
+      dplyr::left_join(va %>% dplyr::select(name, display_name) %>% dplyr::rename_with(~paste0(.x, ".drug")), by = c("name" = "name.drug")) %>%
         dplyr::select(display_name.drug, name, display_name.target) %>%
         purrr::set_names("drug_name", "drug_id", "side_effect")
 
      # 2. degree signature
-     degree_signature <- data.frame(degree = igraph::degree(graph = x$network, v = va %>% dplyr::filter(input_diffusion) %>% pull(name))) %>%
-         tibble::rownames_to_column("node_id") %>% left_join(va, by = c("node_id" = "name")) %>%
+     degree_signature <- data.frame(degree = igraph::degree(graph = x$network, v = va %>% dplyr::filter(input_diffusion) %>% dplyr::pull(name))) %>%
+         tibble::rownames_to_column("node_id") %>% dplyr::left_join(va, by = c("node_id" = "name")) %>%
          dplyr::select("node_id", "display_name", "degree", "gene_hepatox_Toxicology2014","gene_hepatox_ToxicologyInVitro2020", "input_protein_signature") %>%
          dplyr::arrange(desc(degree)) %>%
          purrr::set_names("node_id", "display_name", "degree", "gene_hepatox_Toxicology2014", "gene_hepatox_ToxicologyInVitro2020", "coding_protein_is_present")
@@ -88,10 +106,10 @@ report <- function(x, pathout = ""){
          as.data.frame() %>%
          tibble::rownames_to_column("signature_vids") %>%
          tidyr::pivot_longer(names_to = "pathway", values_to = "distance", -signature_vids) %>%
-         group_by(pathway) %>% top_n(wt = distance, n = -1) %>% dplyr::ungroup() %>%
+       dplyr::group_by(pathway) %>% dplyr::top_n(wt = distance, n = -1) %>% dplyr::ungroup() %>%
          # left_join with va
-         left_join(va %>% dplyr::select(name, display_name,  gene_hepatox_Toxicology2014, gene_hepatox_ToxicologyInVitro2020) %>% rename_with(~paste0(.x, ".sig")), by = c("signature_vids" = "name.sig")) %>%
-         left_join(va %>% dplyr::select(name, display_name) %>% rename_with(~paste0(.x, ".pathway")), by = c("pathway" = "name.pathway")) %>%
+       dplyr::left_join(va %>% dplyr::select(name, display_name,  gene_hepatox_Toxicology2014, gene_hepatox_ToxicologyInVitro2020) %>% dplyr::rename_with(~paste0(.x, ".sig")), by = c("signature_vids" = "name.sig")) %>%
+       dplyr::left_join(va %>% dplyr::select(name, display_name) %>% dplyr::rename_with(~paste0(.x, ".pathway")), by = c("pathway" = "name.pathway")) %>%
          dplyr::select(display_name.pathway, display_name.sig, distance,  gene_hepatox_Toxicology2014.sig, gene_hepatox_ToxicologyInVitro2020.sig, pathway, signature_vids) %>%
          purrr::set_names(c("pathway_name","signature_name", "distance",  "gene_hepatox_Toxicology2014", "gene_hepatox_ToxicologyInVitro2020", "display_node_id", "signature_node_id"))
 
@@ -105,19 +123,19 @@ report <- function(x, pathout = ""){
      #signature_in_gene <- va %>% filter(input_gene_signature) %>% pull(name)
 
      GO.dist.signature <- igraph::distances(graph = x$network, to = GOs$name,
-                                                 v = va %>% dplyr::filter(input_diffusion) %>% pull(name)) %>%
+                                                 v = va %>% dplyr::filter(input_diffusion) %>% dplyr::pull(name)) %>%
 
      # signature.dist.GO <- igraph::distances(graph = x$network, to = signature_in_gene,
      # v = GOs$name) %>%
          as.data.frame()  %>%
          tibble::rownames_to_column("signature_vids") %>%
          tidyr::pivot_longer(names_to = "GO", values_to = "distance", -signature_vids) %>%
-         group_by(GO) %>%
+       dplyr::group_by(GO) %>%
          # shortest distance
-         top_n(wt = distance, n = -1) %>% dplyr::ungroup() %>%
+         dplyr::top_n(wt = distance, n = -1) %>% dplyr::ungroup() %>%
          # left_join with va
-         left_join(va %>% dplyr::select(name, display_name,  gene_hepatox_Toxicology2014, gene_hepatox_ToxicologyInVitro2020) %>% rename_with(~paste0(.x, ".sig")), by = c("signature_vids" = "name.sig")) %>%
-         left_join(va %>% dplyr::select(name, display_name) %>% rename_with(~paste0(.x, ".go")), by = c("GO" = "name.go")) %>%
+         left_join(va %>% dplyr::select(name, display_name,  gene_hepatox_Toxicology2014, gene_hepatox_ToxicologyInVitro2020) %>% dplyr::rename_with(~paste0(.x, ".sig")), by = c("signature_vids" = "name.sig")) %>%
+         left_join(va %>% dplyr::select(name, display_name) %>% dplyr::rename_with(~paste0(.x, ".go")), by = c("GO" = "name.go")) %>%
          dplyr::select(display_name.go, display_name.sig, distance,  gene_hepatox_Toxicology2014.sig, gene_hepatox_ToxicologyInVitro2020.sig, GO, signature_vids) %>%
          purrr::set_names(c("GO_term","signature_name", "distance",  "gene_hepatox_Toxicology2014", "gene_hepatox_ToxicologyInVitro2020", "display_node_id", "signature_node_id"))
 
@@ -137,7 +155,7 @@ report <- function(x, pathout = ""){
 
     # replace NA where logical
      to_return <- lapply(to_return, function(x) {
-         x %>% mutate(across(where(is_logical), ~replace_na(data = .x, replace = FALSE)))
+         x %>% mutate(dplyr::across(where(purrr::is_logical), ~tidyr::replace_na(data = .x, replace = FALSE)))
      })
 
      return(to_return)
@@ -147,21 +165,33 @@ report <- function(x, pathout = ""){
 #'
 #' Produce diffusion report based remarkable nodes in the network
 #'
-#' @param res_report
-#' @param report_title
-#' @param report_out_filepath
-#' @param render = FALSE
+#' @param res_report `report()` results
+#' @param report_title (character) name of the report
+#' @param report_out_filepath (character) filepath where to write the .Rmd report
+#' @param overwrite (logical, default = FALSE) if TRUE, overwrite out filepath
+#' @param render (logical, default = FALSE) if TRUE, render the html file
+#'
+#'
+#' @seealso
+#' report
 #'
 #' @examples
 #' data(liver_1.3_network)
 #' data(liver_1.3_rwr_closest_dfr)
 #' data(signature_maison)
 #' signature_vids <-  signature_maison$`acetaminophen_all_all`
-#' res.diffusion <- get_route(liver_1.3_network, liver_1.3_rwr_closest_dfr, c(signature_vids, "DB00313"), target_type = c("drug/compound", "pathway", "side effect"))
+#' res.diffusion <- get_route(liver_1.3_network, liver_1.3_rwr_closest_dfr, c(signature_vids), target_type = c("drug/compound", "pathway", "side_effect"))
 #'
 #' res_report <- report(res.diffusion)
 #' report_info_df <- produce_diffusion_report(res_report = res_report,  report_title = "acetaminophen", report_out_filepath = "report_acetaminophen_example.Rmd",
 #' render = TRUE, overwrite = TRUE)
+#'
+#' @importFrom magrittr %>%
+#' @importFrom checkmate assert_logical assertPathForOutput
+#' @importFrom purrr imap_dfr
+#' @importFrom rmarkdown render
+#' @importFrom stringr str_remove_all str_replace_all
+#' @export
 produce_diffusion_report <- function(res_report,
                                      report_title,
                                      report_out_filepath = NA,
@@ -195,7 +225,7 @@ produce_diffusion_report <- function(res_report,
 
 
     filpath_report_res <- file.path(tempdir(),
-                                    paste0(as.character(Sys.time()) %>% str_replace_all(" ", "-") %>% str_remove_all(":"),
+                                    paste0(as.character(Sys.time()) %>% stringr::str_replace_all(" ", "-") %>% stringr::str_remove_all(":"),
                                            "_res_diffusion.Rds"))
     saveRDS(object = res_report, file = filpath_report_res)
 
@@ -302,7 +332,6 @@ datatable(res_report$pathway.dist.signature)
 
 
 #' @importFrom purrr map
-#' produce report from rnaseq
 produce_report <- function(report_infos, report_filename = "report.Rmd") {
 
     stopifnot(is(report_infos, "data.frame") | is(report_infos, "character"))

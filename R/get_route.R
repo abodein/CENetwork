@@ -24,22 +24,19 @@
 #' @examples
 #' data(liver_1.3_network)
 #' data(liver_1.3_rwr_closest_dfr)
+#' data(signature_maison)
 #'
-#' signature_vids <-  c("ENSG00000011201","ENSG00000076641","ENSG00000095587","ENSG00000197872",
-#'                      "ENSG00000095970","ENSG00000101098","ENSG00000101298","ENSG00000104371",
-#'                      "ENSG00000111344","ENSG00000112139","ENSG00000115896","ENSG00000116991",
-#'                      "ENSG00000118402","ENSG00000125266","ENSG00000145147","ENSG00000145491",
-#'                      "ENSG00000156427","ENSG00000164082","ENSG00000166106","ENSG00000166963",
-#'                      "ENSG00000173805","ENSG00000183508","ENSG00000185933","ENSG00000196376",
-#'                      "ENSG00000236221","ENSG00000255072","ENSG00000267978","ENSG0000028338")
+#' signature_vids <- signature_maison$acetaminophen_all_all
 #'
 #' res.diffusion <- get_route(liver_1.3_network, liver_1.3_rwr_closest_dfr, signature_vids)
 #'
 #' @importFrom netOmics random_walk_restart
 #' @importFrom netOmics rwr_find_closest_type
-#' @importFrom igraph induced_subgraph shortest_paths
+#' @importFrom igraph induced_subgraph shortest_paths vertex_attr
 #' @importFrom purrr map2
+#' @importFrom AnnotationDbi select
 #' @import org.Hs.eg.db
+#' @importFrom magrittr %>%
 #'
 #' @export
 get_route <- function(network, closest_dfr, signature_vids,
@@ -77,27 +74,27 @@ get_route <- function(network, closest_dfr, signature_vids,
     target <- closest_res$NodeNames
 
     # extract shortest path
-    all_sp <-  map2(input, target, ~{igraph::shortest_paths(graph=network, from=.x, to=.y) %>% .$vpath %>% lapply(names) %>% unlist()})
+    all_sp <-  purrr::map2(input, target, ~{igraph::shortest_paths(graph=network, from=.x, to=.y) %>% .$vpath %>% lapply(names) %>% unlist()})
 
     induced.g <- igraph::induced_subgraph(network, unlist(all_sp))
-    vertex_attr(induced.g) <- vertex_attr(induced.g) %>% as.data.frame() %>%
-        mutate(input_diffusion = name %in% signature_vids) %>%
-        mutate(input_gene_signature = (name %in% signature_vids) & type == "gene") %>%
+    igraph::vertex_attr(induced.g) <- igraph::vertex_attr(induced.g) %>% as.data.frame() %>%
+        dplyr::mutate(input_diffusion = name %in% signature_vids) %>%
+        dplyr::mutate(input_gene_signature = (name %in% signature_vids) & type == "gene") %>%
         as.list()
 
     # get gene input signature and convert to protein
-    input_gene_signature <- vertex_attr(induced.g) %>% as.data.frame() %>%
-        filter(input_gene_signature) %>%
-        pull(name)
+    input_gene_signature <- igraph::vertex_attr(induced.g) %>% as.data.frame() %>%
+        dplyr::filter(input_gene_signature) %>%
+        dplyr::pull(name)
     if(length(input_gene_signature)){
-        lut <- AnnotationDbi::select(x = org.Hs.eg.db,
+        lut <- AnnotationDbi::select(x = org.Hs.eg.db::org.Hs.eg.db,
                                      keys = input_gene_signature,
                                      keytype = "ENSEMBL", columns = "UNIPROT")
-        vertex_attr(induced.g) <- vertex_attr(induced.g) %>% as.data.frame() %>%
-            mutate(input_protein_signature = name %in% lut$UNIPROT) %>% as.list
+        igraph::vertex_attr(induced.g) <- igraph::vertex_attr(induced.g) %>% as.data.frame() %>%
+            dplyr::mutate(input_protein_signature = name %in% lut$UNIPROT) %>% as.list
     } else {
-        vertex_attr(induced.g) <- vertex_attr(induced.g) %>% as.data.frame() %>%
-            mutate(input_protein_signature = NA) %>% as.list
+        igraph::vertex_attr(induced.g) <- igraph::vertex_attr(induced.g) %>% as.data.frame() %>%
+            dplyr::mutate(input_protein_signature = NA) %>% as.list
     }
 
     # return results
