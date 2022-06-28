@@ -70,6 +70,10 @@ Please check your connection via
 RCy3::cytoscapePing()
 ```
 
+## Where to start?
+
+Please check this package [vignette](https://github.com/abodein/CENetwork/blob/main/doc/vignette.html). You can download and open the html file in your browser.
+Another good place to start is to check the package documentation `?CENetwork`.
 
 ## Maintainer
 Antoine Bodein (<bodein.antoine@gmail.com>)

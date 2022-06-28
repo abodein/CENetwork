@@ -7,7 +7,9 @@
 generate_closest_dfr(network, res_tmp_matrix)
 }
 \arguments{
-\item{res_tmp_matrix}{}
+\item{network}{igraph}
+
+\item{res_tmp_matrix}{squared data.frame with seed in row and targets in columns}
 }
 \description{
 From RWR result matrix generate closest dfr based on "type" attribue

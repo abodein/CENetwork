@@ -1,7 +1,7 @@
-#` RWR scores
-#
-# Generate all random walk scores. Iteratively, each node become the seed.
-# Return the RWR for the connected nodes in the network as a squared data.frame.
+#'` RWR scores
+#'
+#' Generate all random walk scores. Iteratively, each node become the seed.
+#' Return the RWR for the connected nodes in the network as a squared data.frame.
 
 #' @param X (igraph) network
 #' @param verbose (logical) default = TRUE
@@ -61,8 +61,8 @@ RWR_build_complete <- function (X, verbose = TRUE)
 #'
 #' From RWR result matrix generate closest dfr based on "type" attribue
 #'
-#' @param network
-#' @param res_tmp_matrix
+#' @param network igraph
+#' @param res_tmp_matrix squared data.frame with seed in row and targets in columns
 #'
 #' @import progress
 #' @importFrom magrittr %>%
@@ -105,6 +105,7 @@ generate_closest_dfr <- function(network, res_tmp_matrix){
 #' Pipeline RWR
 #'
 #' Run RWR_build_complete and generate_closest_dfr
+#'
 #' @param X network
 #'
 pipeline_RWR <- function(X){
