@@ -1,7 +1,7 @@
 Package: CENetwork
 Type: Package
 Title: Liver network diffusion exploration
-Version: 1.0.0
+Version: 1.0.1
 Author: Antoine Bodein
 Maintainer: <antoine.bodein@gmail.com>
 Description: Liver network diffusion exploration:
