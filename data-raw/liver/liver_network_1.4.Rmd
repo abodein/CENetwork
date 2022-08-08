@@ -1,0 +1,447 @@
+---
+title: "Liver network v1.4"
+author: "Antoine Bodein"
+date: "12/07/2022"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(igraph)
+library(netOmics)
+library(org.Hs.eg.db)
+library(gprofiler2)
+```
+
+
+# PPI
+
+```{r}
+# housekeeping etc.. in liver + tag HPA liver specific
+library(org.Hs.eg.db)
+# biogrid <- read_tsv("./ressources/BIOGRID-ALL-4.4.203.tab3.txt")  %>%  
+biogrid <- read_tsv("../ressources/BIOGRID-ALL-4.4.207.tab3.txt")  %>%  
+    dplyr::select("SWISS-PROT Accessions Interactor A", "SWISS-PROT Accessions Interactor B") %>% 
+    set_names("A","B")
+
+# get HPA only,liver specific
+HPA.liver <- read_tsv("./ressources/HPA_tissue_category_rna_liver_Tissue.tsv")
+# can be filtered on this :
+HPA.liver$`RNA tissue specificity` %>% table
+# take all for now
+hpa_liver_specific_uniprot <- HPA.liver$Uniprot %>% na.omit %>% str_split(", ")  %>% unlist  # some are described by 2 id
+
+# filter biogrid based on HPA only
+# ppi_layer <- biogrid %>% filter(A %in% hpa_liver_specific_uniprot & B %in% hpa_liver_specific_uniprot)
+
+# new biogrid filter
+# NOT = https://www.proteinatlas.org/search/NOT+tissue_category_rna%3Aliver%3Bnot+detected
+# Download tsv
+# Transcriptome analysis shows that 68% (n=13672) of all human proteins (n=20090) are expressed in the liver and 981 of these genes show an elevated expression in the liver compared to other tissue types.
+all_HPA <- read_tsv("../ressources//HPA_liver_specific.tsv")
+# all_HPA =  68% (n=13672)
+
+ppi_layer <- biogrid %>%  filter(A %in% all_HPA$Uniprot & B %in% all_HPA$Uniprot)
+ppi_layer.graph <- graph_from_data_frame(ppi_layer, directed = FALSE) %>% simplify()
+
+# protein name
+protein_name_info <- read_tsv("../ressources/uniprot-yourlist%3AM2022042692C7BAECDB1C5C413EE0E0348724B6824B4F37N.txt")
+protein_name_info <- protein_name_info %>% dplyr::select(`yourlist:M2022042692C7BAECDB1C5C413EE0E0348724B6824B4F37N`, `Protein names`) %>% 
+  set_names("UNIPROT", "protein_name")
+
+# protein uniprot -> synbol
+symbol_uniprot_map <- AnnotationDbi::select(org.Hs.eg.db, keys = V(ppi_layer.graph)$name,
+                      keytype = "UNIPROT", column = c("SYMBOL")) %>% 
+    group_by(UNIPROT) %>% 
+    summarise(SYMBOL = paste0(SYMBOL, collapse = "|"))
+
+
+vertex_attr(ppi_layer.graph) <- vertex_attr(ppi_layer.graph) %>% as.data.frame() %>% 
+    mutate(HPA_liver_specific = (name %in% hpa_liver_specific_uniprot)) %>% 
+  mutate(type = "protein") %>% 
+  left_join(protein_name_info, by = c("name" = "UNIPROT")) %>% 
+  left_join(symbol_uniprot_map, by = c("name" = "UNIPROT")) %>% 
+  mutate(UNIPROT = name) %>% 
+  as.list()
+```
+
+# Drugs 
+
+## Drugbank 
+
+```{r}
+targets_raw <- read_csv("../ressources/drugbank_targets.csv")
+
+targets <- targets_raw %>% filter(Species == "Humans") %>% 
+  #filter(`UniProt ID` == "Q9BTZ2") %>% 
+    dplyr::select(Name, "UniProt ID", "Drug IDs") %>% 
+    set_names("target_name", "target_uniprot_id", "druk_id") %>% 
+    splitstackshape::cSplit(splitCols = "druk_id", sep = "; ") %>% 
+    as.data.frame() %>% 
+    gather(db_1, drugbank_id, -c(target_name, target_uniprot_id)) %>% 
+    dplyr::select(-db_1) 
+
+# drugbank_id to chembl_id conversion
+drugbank_structure_links <- read_csv("../ressources/drugbank_structure_links.csv")
+colnames(drugbank_structure_links)
+drugbank_structure_links <- drugbank_structure_links %>% dplyr::select("DrugBank ID", "Name", "ChEMBL ID") %>% 
+  #na.omit() %>% 
+    set_names(c("drugbank_id", "drug_name", "chembl_id"))
+
+
+# layer db with all infos for merging with chembl
+db_tmp <- targets %>% dplyr::select(drugbank_id, target_uniprot_id) %>% set_names(c("drugbank_id", "uniprot")) %>%  left_join(drugbank_structure_links) %>% 
+  filter(!is.na(drug_name))
+
+# drugbank_structure_links %>% filter(drugbank_id == "DB00075")
+# sum(unique(targets$drugbank_id) %in% drugbank_structure_links$drugbank_id)
+# table(unique(targets$drugbank_id) %in% drugbank_structure_links$drugbank_id)
+```
+
+## Chembl
+```{r}
+# CHEMBL target ID to Uniprot ID mapping
+CHEMBL <- read_tsv("../ressources/chembl_uniprot_mapping.txt", skip = 1, col_names = FALSE) %>% 
+    dplyr::select(X1, X2) %>% purrr::set_names(c("from", "to")) %>% 
+    filter(from %in% c(ppi_layer$A, ppi_layer$B))
+
+# Cell # CHEMBL3307718 -> browse activities -> filter IC50 -> filter homo sapiens
+CHEMBL3307718 <-  read.csv("../ressources/chembl_DOWNLOAD-dk7oSTsd5iGrSKJRwjEwVL_s1yKcAfkPGCxv5IlIoeg=.csv", sep = ";")
+CHEMBL3307718$Target.ChEMBL.ID %>% unique %>% length()
+
+HepG2.chembl.target.ic50 <- CHEMBL3307718 %>% filter(Target.ChEMBL.ID %in% CHEMBL$to) %>% dplyr::select(Target.ChEMBL.ID, Molecule.ChEMBL.ID, Standard.Value) %>% 
+    set_names("target_chembl_id", "molecule_chembl_id", "IC50") %>% na.omit
+
+
+# add mapping
+chembl_tmp <- CHEMBL %>% set_names(c("UNIPROT", "target")) %>% 
+    left_join(HepG2.chembl.target.ic50, by = c("target" = "target_chembl_id")) %>% 
+    na.omit()
+
+
+# IC 50
+IC50_info <- chembl_tmp  %>% 
+    group_by(UNIPROT, target, molecule_chembl_id) %>% 
+    summarise(IC50 = paste0(UNIPROT, "_", target, "_", IC50, collapse = ";")) %>% 
+    ungroup
+# short version to have only 1(chembl):1(IC50 <- pasted if multiple target/value)
+IC_info_tmp <- IC50_info %>% dplyr::select(IC50, molecule_chembl_id) %>% unique %>% 
+  set_names(c("IC50", "chembl_id")) %>% group_by(chembl_id) %>% 
+  summarise(IC50 = paste0(IC50, collapse = ";"))
+
+
+# layer chembl with all infos
+chembl_tmp_tmp <- chembl_tmp %>% dplyr::select(UNIPROT, molecule_chembl_id) %>% set_names("uniprot", "chembl_id") %>% 
+   left_join(drugbank_structure_links) 
+```
+
+## merge drugbank and chembl
+
+```{r}
+
+# bind and remove redondencie
+compound_layer_df <- bind_rows(db_tmp, chembl_tmp_tmp) %>% unique %>%  
+  mutate(from = ifelse(!is.na(drugbank_id), drugbank_id, chembl_id), to = uniprot) 
+
+# IMPORTANT: extra layer info: 
+compound_extra_info <-  compound_layer_df %>% dplyr::select(drugbank_id, chembl_id, drug_name, from) %>% unique %>% left_join(IC_info_tmp, by = c("chembl_id"="chembl_id")) %>% 
+    left_join(dplyr::select(CHEMBL3307718, c(Target.ChEMBL.ID, Molecule.Max.Phase)), by = c("chembl_id" = "Target.ChEMBL.ID"))
+
+## ADD DILI/LTKB
+DILI <- readxl::read_excel("../ressources/DILIrank-DILIscore_List.xlsx", skip = 1) %>% 
+ dplyr::select("Compound Name", "Severity Class", "vDILIConcern") %>% 
+  set_names("drug_name", "DILI_severity_class", "vDILIConcern")
+
+# filter only drug with target in liver
+compound_layer_df <- compound_layer_df %>% filter(uniprot %in% V(ppi_layer.graph)$name)
+
+# get compound layer
+protein_compound_layer <- igraph::graph_from_data_frame(compound_layer_df %>% dplyr::select("from", "to"),directed = FALSE) %>% simplify
+
+ppi_compound.inter <- netOmics::combine_layers(ppi_layer.graph, protein_compound_layer)
+
+
+vertex_attr(ppi_compound.inter) <- vertex_attr(ppi_compound.inter) %>% as.data.frame %>% left_join(compound_extra_info, by = c("name" = "from")) %>% 
+  mutate(type = ifelse(is.na(type), "drug/compound", type)) %>% 
+  mutate(drug_name = str_to_lower(drug_name)) %>% left_join(DILI) %>% 
+  as.list()
+
+# ppi_compound.inter
+saveRDS(ppi_compound.inter, file = "results/liver_v1.4_protein_drug.Rds")
+```
+
+## Side effect 
+
+```{r}
+sider_drug <- read_tsv("../ressources/sider_drug_names.tsv", col_names = F) %>% set_names("SIDER_drug_id", "drug_name") %>% unique
+sider_SE_label <- read_tsv("../ressources/sider_meddra_all_label_se.tsv", col_names = F) %>% 
+  dplyr::select(X2, X4, X6, X7) %>% set_names("SIDER_drug_id", "SIDER_se_id", "SIDER_se_sub_id", "SIDER_se_name") %>% unique %>% 
+# some SE terms has multiple names: Preffered terms, Lowest Level terms
+  filter(is.na(SIDER_se_sub_id) | SIDER_se_id == SIDER_se_sub_id) %>% 
+  dplyr::select(-SIDER_se_sub_id) %>% unique
+
+sider_drug_name <-  left_join(sider_drug, sider_SE_label)
+
+# sider_drug_name %>% dplyr::select(-c(drug_name, SIDER_drug_id)) %>% unique %>%  group_by(SIDER_se_id) %>% summarise(N = n()) %>% arrange(desc(N))
+# sider_drug_name %>% filter(SIDER_se_id == "C0039070")
+
+sider_drug_layer <- vertex_attr(ppi_compound.inter) %>% as.data.frame %>% dplyr::select(name, drug_name) %>% filter(!is.na(drug_name)) %>% left_join(sider_drug_name) %>% na.omit() %>% 
+    dplyr::select(-c(drug_name, SIDER_se_id, SIDER_drug_id )) %>% 
+    igraph::graph_from_data_frame(directed = FALSE)
+
+
+vertex_attr(sider_drug_layer) <- vertex_attr(sider_drug_layer) %>% as.data.frame() %>% 
+  mutate(type = ifelse(name %in% unique(sider_drug_name$SIDER_se_name), 'side_effect', NA)) %>% 
+  left_join(sider_drug_name %>% dplyr::select(-c(drug_name, SIDER_drug_id)) %>% unique, by = c("name" = "SIDER_se_name")) %>% as.list
+
+ppi_compound_side_effect <- netOmics::combine_layers(ppi_compound.inter, sider_drug_layer)
+```
+
+# gene
+```{r}
+load("../ressources/gene_layer-toxico.Rda")
+genes <- igraph::vertex_attr(grn.graph)$name %>% str_split("_") %>% map_chr(~.x[1])
+
+# add symbol
+symbols_map <- AnnotationDbi::select(org.Hs.eg.db, keys = genes,
+                      keytype = "ENSEMBL", column = c("SYMBOL")) %>% 
+    group_by(ENSEMBL) %>% 
+    summarise(SYMBOL = paste0(SYMBOL, collapse = "|"))
+
+vertex_attr(grn.graph) <- vertex_attr(grn.graph) %>% as.data.frame() %>% 
+  mutate(name = genes, type = "gene") %>% 
+  mutate(ENSEMBL = name) %>% 
+  left_join(symbols_map) %>% 
+  as.list
+
+# intersection with ppi
+# merge grn with proteins
+load("../TF_TG.db.Rda")
+
+TF_UNIPROT_LUT <- AnnotationDbi::select(org.Hs.eg.db, keys = TF_TG.db$TF, keytype = "SYMBOL", columns = "UNIPROT") %>% unique
+TG_ENSEMPL_LUT <- AnnotationDbi::select(org.Hs.eg.db, keys = TF_TG.db$TG, keytype = "SYMBOL", columns = "ENSEMBL") %>% unique
+
+genes <- V(grn.graph)$name
+proteins <-  V(ppi_layer.graph)$name
+# prot -> gene
+interaction_TF_TG <- TF_TG.db %>% 
+    left_join(TF_UNIPROT_LUT, by = c("TF"="SYMBOL")) %>% 
+    left_join(TG_ENSEMPL_LUT, by = c("TG"="SYMBOL")) %>% 
+    na.omit() %>% 
+   # filter(ENSEMBL %in% genes, UNIPROT %in% V(PPI_ego.graph)$name) %>% 
+    filter(ENSEMBL %in% genes & UNIPROT %in% proteins) %>% 
+    dplyr::select(UNIPROT, ENSEMBL) %>% 
+    set_names(c("from", "to")) %>% 
+    mutate("interaction_type" = "TF-TG")
+
+# gene -> prot
+interaction_coding <- AnnotationDbi::select(org.Hs.eg.db, keys =  proteins, keytype = "UNIPROT", columns = "ENSEMBL") %>% unique %>% 
+    dplyr::select(ENSEMBL, UNIPROT) %>% 
+    set_names(c("from", "to")) %>% 
+    mutate("interaction_type" = "protein coding")
+
+interaction_gene_prot <- bind_rows(interaction_TF_TG, interaction_coding) %>%  na.omit()
+
+
+grn_prot.layer <- netOmics::combine_layers(graph1 = grn.graph,interaction.df = interaction_gene_prot)
+
+
+
+vertex_attr(grn_prot.layer) <- vertex_attr(grn_prot.layer) %>% as.data.frame() %>% 
+    # mutate(ENSEMBL = ifelse(type == "gene", name, NA),
+    #        UNIPROT = ifelse(type == "protein", name, NA),
+    mutate(
+           TF = name %in% interaction_TF_TG$from,
+           TG = name %in% interaction_TF_TG$to,
+           ) %>% as.list
+
+gene_ppi_compound_side_effect <- netOmics::combine_layers(grn_prot.layer, ppi_compound_side_effect)
+```
+
+# Pathways
+
+```{r}
+library(reactome.db)
+path_2_name <- as.list(reactomePATHID2NAME)
+
+reactome_igraph <- readRDS("../ressources/reactome_graphite_igraph.Rds")
+reactome_igraph_tmp <- reactome_igraph[!(lapply(reactome_igraph, is_null) %>% unlist() )]
+reactome_dfr <- imap_dfr(reactome_igraph_tmp,~ data.frame("uniprot" = V(.x)$name, pathway = .y)) %>% 
+  unique
+
+# add pathway name from reactome.db
+path_2_name <-  as.list(reactomePATHID2NAME) %>% imap_dfr(~data_frame(pathway_name = .x, pathway_id = .y, pathway_database = "reactome"))
+reactome_meta <- path_2_name %>% filter( pathway_name %>% str_detect("Homo sapiens:")) %>% 
+  mutate(pathway_name = pathway_name %>% str_remove("Homo sapiens: ")) 
+
+# # same with smpdb
+# smpdb_meta <- SMPDB_prot %>% dplyr::select(`SMPDB ID`, `Pathway Name`) %>% mutate("pathway_database" = "smpdb") %>% unique %>% 
+#   set_names(c("pathway_id", "pathway_name", "pathway_database")) %>% 
+#   filter(pathway_id != "SMPDB ID")
+
+# pathway_meta <- bind_rows(smpdb_meta, reactome_meta)
+pathway_meta <- bind_rows(reactome_meta)
+
+
+pathways_interactions <- reactome_dfr %>% filter(uniprot %in% V(ppi_layer.graph)$name) %>% set_names("from", "to") %>%
+  # left_join to get pathway_id instead of pathway name
+  left_join(reactome_meta, by = c("to" = "pathway_name")) %>% dplyr::select(from, pathway_id) %>% set_names("from", "to") %>%
+  # # smpdb already has pathway id
+  # bind_rows(drugbank_smpdb %>% filter(from %in% vertex_attr(gene_ppi_compound_v1)$drugbank_id)) %>%
+  na.omit
+
+# stat about pathways_interactions
+pathways_interactions %>% left_join(pathway_meta, by = c("to" = "pathway_id")) %>% dplyr::select(-from) %>% unique %>% 
+  filter(is.na(pathway_name))
+
+
+pathways_interactions.layer <- graph_from_data_frame(pathways_interactions, directed = FALSE) %>% simplify
+vertex_attr(pathways_interactions.layer) <- vertex_attr(pathways_interactions.layer) %>% as.data.frame() %>%  left_join(pathway_meta, by = c("name" = "pathway_id")) %>% 
+  mutate(pathway_id = ifelse(!is.na(pathway_name), name, NA)) %>% 
+  mutate(type = ifelse(pathway_database == 'reactome', "pathway", NA)) %>% as.list() 
+
+gene_ppi_compound_side_effect_pathways <- netOmics::combine_layers(gene_ppi_compound_side_effect, pathways_interactions.layer)
+```
+
+# GO terms
+
+```{r}
+all_hepatox <- readRDS(file = "../results/all_hepatox_genes.Rds")
+
+gene_all_hepatox <- all_hepatox %>% dplyr::select(ENSEMBL, olivier, tripodi, custom_romain) %>% 
+  set_names("ENSEMBL", "gene_hepatox_olivier", "gene_hepatox_tripodi", "custom_hepatox_custom_romain") %>% unique
+protein_all_hepatox <- all_hepatox %>% dplyr::select(UNIPROT, olivier, tripodi, custom_romain) %>% 
+  set_names("UNIPROT", "protein_hepatox_olivier", "protein_hepatox_tripodi", "protein_hepatox_custom_romain") %>% unique
+
+# 1 uniprot = plusieurs ensembl 
+protein_all_hepatox <- protein_all_hepatox %>% 
+  gather(liste, value, -UNIPROT) %>% 
+  group_by(UNIPROT, liste) %>% 
+  summarise(value = sum(value)) %>% 
+  mutate(value = as.logical(value)) %>% 
+  spread(liste, value) 
+
+
+vertex_attr(gene_ppi_compound_side_effect_pathways) <- vertex_attr(gene_ppi_compound_side_effect_pathways) %>% as.data.frame() %>% 
+  left_join(gene_all_hepatox, by = c("name" = "ENSEMBL")) %>% 
+  left_join(protein_all_hepatox, by = c("name" = "UNIPROT")) %>% 
+  as.list()
+```
+
+GO terms as nodes
+
+```{r}
+# article from Olive  ## de_abrew
+go_hepatox_1 <- read_tsv("../ressources/GO_hepatox.txt", col_names = F) %>% 
+  mutate(X1 = X1 %>%  str_extract("GO:.{7}")) %>% pull(X1)
+conv_1 <- gprofiler2::gconvert(go_hepatox_1) %>% dplyr::select(input, target)
+target_hepatox_ensg <- conv_1$target
+conv_1 <- conv_1 %>% set_names("GO", "ENSEMBL")
+symbol_map_hepatox_deabrew <- AnnotationDbi::select(x = org.Hs.eg.db, keys = conv_1$ENSEMBL, keytype = "ENSEMBL", columns = c("SYMBOL", "UNIPROT"))
+GO_hepatox_deabrew <- conv_1 %>% left_join(symbol_map_hepatox_deabrew) %>% unique
+
+# table from Romain  ## tripodi
+go_hepatox_2.df <- readxl::read_excel("../ressources/GO Terms Tripodi.xlsx", skip = 1) %>% 
+  .[-1,] %>% gather(GO, genes) %>% 
+  mutate(GO = GO %>% str_extract("GO:.{7}")) %>% na.omit
+
+symbol_map_hepatox_tripodi <- AnnotationDbi::select(x = org.Hs.eg.db, keys = go_hepatox_2.df$genes, keytype = "SYMBOL", columns = c("ENSEMBL", "UNIPROT")) %>% na.omit
+GO_hepatox_tripodi <- symbol_map_hepatox_tripodi %>% left_join(go_hepatox_2.df, by = c("SYMBOL" = "genes"))
+
+# table custom Romain
+# go_hepatox_3.df <- readxl::read_excel("../ressources/hepatox/Ref Patways Tox - March 2022.xlsx") %>% 
+#   gather(pathway, genes) %>% na.omit()
+
+# symbol_map_hepatox_2 <- AnnotationDbi::select(x = org.Hs.eg.db, keys = go_hepatox_3.df$genes, keytype = "SYMBOL", columns = c("ENSEMBL", "UNIPROT")) %>% na.omit
+
+# here we don't take romain custom
+
+
+all_hepatox_CosEU <-bind_rows(GO_hepatox_deabrew, GO_hepatox_tripodi) %>% unique %>% 
+  mutate(de_abrew = (ENSEMBL %in% GO_hepatox_tripodi$ENSEMBL)) %>% 
+  mutate(tripodi = (ENSEMBL %in% GO_hepatox_tripodi$ENSEMBL)) 
+
+all_hepatox_CosEU_in_network_gene <- all_hepatox_CosEU %>% dplyr::select(ENSEMBL, GO) %>%  filter(ENSEMBL %in% V(gene_ppi_compound_side_effect_pathways)$name) %>% na.omit %>% unique %>% set_names("mol", "GO") %>% mutate(type = "gene")
+
+all_hepatox_CosEU_in_network_protein <- all_hepatox_CosEU %>% dplyr::select(UNIPROT, GO) %>% filter(UNIPROT %in% V(gene_ppi_compound_side_effect_pathways)$name) %>% na.omit %>% unique %>% set_names("mol", "GO") %>% mutate(type = "protein")
+
+
+go_layer_df <- bind_rows(all_hepatox_CosEU_in_network_gene, all_hepatox_CosEU_in_network_protein) 
+
+library(GO.db)
+go_info <- AnnotationDbi::select(x = GO.db, keys = unique(go_layer_df$GO), keytype = "GOID", columns = c("ONTOLOGY", "TERM")) %>% 
+    set_names(c("go_id", "go_ontology", "go_term_name")) %>% mutate(name = go_id) %>% mutate(type = "GO")
+
+go_layer.graph <- igraph::graph_from_data_frame(go_layer_df %>% dplyr::select(-type), directed = FALSE)
+vertex_attr(go_layer.graph) <- vertex_attr(go_layer.graph) %>% as.data.frame() %>% left_join(go_info) %>% as.list()
+
+gene_ppi_compound_side_effect_pathways_GO <- netOmics::combine_layers(gene_ppi_compound_side_effect_pathways, go_layer.graph)
+```
+
+# display name and link
+
+```{r}
+# crosslink
+vertex_attr(gene_ppi_compound_side_effect_pathways_GO)  <- 
+  vertex_attr(gene_ppi_compound_side_effect_pathways_GO)  %>% as.data.frame() %>% 
+  mutate(link = case_when(
+    type == "gene" ~ paste0("https://www.proteinatlas.org/", ENSEMBL),  # forcement ensembl mais semble fonctionner sur protein atlas avec les qq ID testés
+    type == "protein" ~ paste0("https://www.proteinatlas.org/", UNIPROT),  # ok pour protein
+    type == "pathway" & pathway_database == "reactome" ~ paste0("https://reactome.org/content/detail/", pathway_id),
+    type == "drug/compound" & !is.na(drugbank_id) ~ paste0("https://go.drugbank.com/drugs/", drugbank_id),
+    type == "drug/compound" & is.na(drugbank_id) ~ paste0("https://www.ebi.ac.uk/chembl/compound_report_card/", chembl_id),  # CHEMBL
+    type == "GO" ~ paste0("https://www.ebi.ac.uk/QuickGO/term/", go_id),
+    type == "side_effect" ~ paste0("http://sideeffects.embl.de/se/", SIDER_se_id)
+  ))
+
+  # display name
+vertex_attr(gene_ppi_compound_side_effect_pathways_GO)  <- 
+  vertex_attr(gene_ppi_compound_side_effect_pathways_GO)  %>% as.data.frame() %>%   
+  mutate(display_name = case_when(
+    # gene 
+    type == "gene" & !is.na(SYMBOL) ~ SYMBOL,
+    type == "gene" & is.na(SYMBOL) ~ ENSEMBL,
+    
+    # protein
+    type == "protein"  & !is.na(SYMBOL) ~ SYMBOL,  # protein name too long
+    type == "protein"  & is.na(SYMBOL) ~ SYMBOL,
+
+    # drug/compound 
+    type == "drug/compound" & !is.na(drug_name) ~ drug_name,  # drugbank always have names
+    type == "drug/compound" & is.na(drug_name) ~ chembl_id,
+
+    # pathway
+    type == "pathway" ~ pathway_name,  # reactome, always have names
+    
+    # GO
+    type == "GO" & !is.na(go_term_name) ~ go_term_name,
+    type == "GO" & is.na(go_term_name) ~ go_id,
+    
+     # side effect
+    type == "side effect"  ~ name,
+    
+    # default
+    TRUE ~ name
+)) %>% as.list
+```
+
+
+```{r}
+liver_1.4_network <- gene_ppi_compound_side_effect_pathways_GO %>% igraph::simplify()
+saveRDS(liver_1.4_network, file = "liver_1.4_network.Rds")
+```
+
+# statistique
+
+```{r}
+liver_1.4_network %>% vertex_attr() %>% as.data.frame() %>% group_by(type) %>% 
+  summarise(N = n())
+
+liver_1.4_network %>% vertex_attr() %>% as.data.frame() %>% filter(is.na(type))
+
+as_long_data_frame(liver_1.4_network) %>%  dplyr::select(from_name, from_type, to_name, to_type) %>% 
+   dplyr::group_by(from_type, to_type) %>% 
+  summarise(N = n()) %>% spread(to_type, N)
+```
+
+
