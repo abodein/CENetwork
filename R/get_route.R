@@ -76,6 +76,10 @@ get_route <- function(network, closest_dfr, signature_vids,
     # extract shortest path
     all_sp <-  purrr::map2(input, target, ~{igraph::shortest_paths(graph=network, from=.x, to=.y) %>% .$vpath %>% lapply(names) %>% unlist()})
 
+    # update autoroute
+    all_sp_df_distance <- purrr::map2(input, all_sp, ~data.frame(start = .x, path = .y, distance_from_start = seq_along(.y))) %>%
+        bind_rows
+
     induced.g <- igraph::induced_subgraph(network, unlist(all_sp))
     igraph::vertex_attr(induced.g) <- igraph::vertex_attr(induced.g) %>% as.data.frame() %>%
         dplyr::mutate(input_diffusion = name %in% signature_vids) %>%
@@ -98,7 +102,8 @@ get_route <- function(network, closest_dfr, signature_vids,
     }
 
     # return results
-    result <- list(network = induced.g, closest = closest_res, input = input)
+    result <- list(network = induced.g, closest = closest_res, input = input,
+                   autoroute = all_sp_df_distance)
     class(result) <- "get_route.res"
     return(result)
 }

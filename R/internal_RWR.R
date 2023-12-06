@@ -98,6 +98,14 @@ generate_closest_dfr <- function(network, res_tmp_matrix){
                    "type" = rep(gr, times = length(.x[[gr]])),
                    "SeedNode" = rep(.y,times = length(.x[[gr]])))
     }))
+
+    va <- vertex_attr(network) %>% as.data.frame()
+
+    closest.dfr <- closest.dfr %>% dplyr::select(NodeNames, SeedNode) %>%
+        left_join(va %>% rename_with(~paste0(.x, ".target")),by = c("NodeNames" = "name.target")) %>%
+        left_join(va %>% rename_with(~paste0(.x, ".seed")),by = c("SeedNode" = "name.seed")) %>%
+        dplyr::select(SeedNode, type.seed, NodeNames, type.target)
+
     return(closest.dfr)
 }
 

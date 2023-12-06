@@ -122,6 +122,8 @@ report <- function(x){
      # 4.2 GO distance to signature
      #signature_in_gene <- va %>% filter(input_gene_signature) %>% pull(name)
 
+     if(!purrr::is_empty(GOs$name)){
+
      GO.dist.signature <- igraph::distances(graph = x$network, to = GOs$name,
                                                  v = va %>% dplyr::filter(input_diffusion) %>% dplyr::pull(name)) %>%
 
@@ -138,7 +140,9 @@ report <- function(x){
          left_join(va %>% dplyr::select(name, display_name) %>% dplyr::rename_with(~paste0(.x, ".go")), by = c("GO" = "name.go")) %>%
          dplyr::select(display_name.go, display_name.sig, distance,  gene_hepatox_Toxicology2014.sig, gene_hepatox_ToxicologyInVitro2020.sig, GO, signature_vids) %>%
          purrr::set_names(c("GO_term","signature_name", "distance",  "gene_hepatox_Toxicology2014", "gene_hepatox_ToxicologyInVitro2020", "display_node_id", "signature_node_id"))
-
+     } else {
+       GO.dist.signature <- data.frame()
+}
 
 
 
