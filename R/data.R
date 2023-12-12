@@ -36,3 +36,11 @@
 "signature_maison"
 
 
+#' Module
+#'
+#' Precalulated PPI module using M1 olgo from MONET
+#'
+#' @format a data.frame
+#'
+"module_ppi_M1_20231211"
+

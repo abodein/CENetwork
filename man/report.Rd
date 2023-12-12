@@ -34,4 +34,7 @@ signature_vids <-  signature_maison$`acetaminophen_all_all`
 res.diffusion <- get_route(liver_1.3_network, liver_1.3_rwr_closest_dfr, c(signature_vids, "DB00313"), target_type = c("drug/compound", "pathway"))
 res_report <- report(res.diffusion)
 
+# with module enrichment
+
+
 }

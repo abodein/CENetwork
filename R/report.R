@@ -26,6 +26,9 @@
 #' res.diffusion <- get_route(liver_1.3_network, liver_1.3_rwr_closest_dfr, c(signature_vids, "DB00313"), target_type = c("drug/compound", "pathway"))
 #' res_report <- report(res.diffusion)
 #'
+#' # with module enrichment
+#'
+#'
 #' @importFrom igraph vertex_attr make_ego_graph distances degree
 #' @importFrom dplyr filter select mutate bind_rows rename_with left_join pull group_by top_n ungroup arrange across
 #' @importFrom purrr imap set_names is_logical
@@ -69,7 +72,7 @@ report <- function(x){
         dplyr::group_by(drug) %>% dplyr::top_n(wt = distance, n = -1) %>% dplyr::ungroup() %>%
         # left_join with va
         dplyr::left_join(va %>% dplyr::select(name, display_name, gene_hepatox_Toxicology2014, gene_hepatox_ToxicologyInVitro2020) %>% dplyr::rename_with(~paste0(.x, ".sig")), by = c("signature_vids" = "name.sig")) %>%
-      dplyr::left_join(va %>% dplyr::select(name, display_name) %>%
+        dplyr::left_join(va %>% dplyr::select(name, display_name) %>%
                          dplyr::rename_with(~paste0(.x, ".drug")), by = c("drug" = "name.drug")) %>%
         dplyr::select(display_name.drug, display_name.sig, distance,  gene_hepatox_Toxicology2014.sig, gene_hepatox_ToxicologyInVitro2020.sig, drug, signature_vids) %>%
         purrr::set_names(c("drug_name","signature_name", "distance", "gene_hepatox_Toxicology2014", "gene_hepatox_ToxicologyInVitro2020", "drug_node_id", "signature_node_id"))
@@ -144,6 +147,33 @@ report <- function(x){
        GO.dist.signature <- data.frame()
 }
 
+     # autoroute, most visited nodes
+     visite_autoroute <- x$autoroute %>% dplyr::group_by(path) %>% dplyr::summarise(val = n()) %>% dplyr::arrange(dplyr::desc(val)) %>%
+         purrr::set_names(c("name", "nb.visite")) %>%
+         left_join(va, by = "name") %>%
+         dplyr::select(name, nb.visite, type, display_name)
+
+
+     ## update: enrichment in module
+     # convert signature to uniprot
+     enrich_input <- AnnotationDbi::select(x = org.Hs.eg.db,
+                                           keys = c(x$input, va %>% dplyr::pull(name)),
+                                           columns = "UNIPROT", keytype = "ENSEMBL") %>%
+         na.omit() %>% pull(UNIPROT)
+
+
+     enrich_res <- module_ppi_M1_20231211 %>% mutate(is_present = molecule %in% enrich_input) %>%
+         group_by(module) %>%
+         summarise(k = sum(is_present), # nb of molecule in input in the module
+                   n = n()) %>% # taille module
+         mutate(K = sum(k),  # nb of molecule in all modules
+                N = sum(n)) %>%   # size all modules
+         nest(enrich_module_count = -module) %>%
+         mutate(enrich_module_contingency = imap(enrich_module_count, ~make_contingency(k = .x$k, K = .x$K, n = .x$n, N = .x$N))) %>%
+         mutate(enrich_module_p.value = map_dbl(enrich_module_contingency, ~fisher.test(.x, alternative = "greater")$p.value)) %>%
+         mutate(enrich_module_p.value_adj = p.adjust(.$enrich_module_p.value, method = "fdr"))
+     dplyr::select(c(module, enrich_module_count, enrich_module_p.value, enrich_module_p.value_adj)) %>% unnest(cols = c(enrich_module_count)) %>% arrange(enrich_module_p.value)
+
 
 
      to_return <- list()
@@ -156,6 +186,9 @@ report <- function(x){
      to_return[["drugs.side_effect"]] <- drugs.se
      to_return[["GOs"]] <- GOs
      to_return[["GO.dist.signature"]] <- GO.dist.signature
+     to_return[["visite_autoraute"]] <- visite_autoroute
+     to_return[["module_enrichment"]] <- enrich_res
+
 
     # replace NA where logical
      to_return <- lapply(to_return, function(x) {
@@ -273,46 +306,201 @@ res_report <- readRDS('", filpath_report_res,"')
 # show data
 core <- "
 # Most connected node from signature input
+
+The following table returns the list of molecules as input for diffusion, ranked from highest number of connections (degree) to lowest.
+
+Columns description:
+
+* node_id: Node identifier
+* display_name: The node name displayed on the network
+* degree: The number of node connections
+* gene_hepatox_Toxicology2014: True or False, if the node is connected to a hepatotoxic function (GO terms) from the list given in Toxicology2014
+* gene_hepatox_ToxicologyInVitro2020:  True or False, if the node is connected to a hepatotoxic function (GO terms) from the list given in ToxicologyInVitro2020
+* coding_protein_is_present: True or False, if a gene node has its coding protein in the subnetwork.
+
 ```{r}
 datatable(res_report$degree_signature)
 ```
 
 # Drugs
+
+Focus on drug nodes.
+The following section provides information on the *drug* nodes returned in the subnetwork.
+
 ## Drug info
+
+The following table returns general information on drugs contained in the subnetwork.
+
+Columns description:
+
+
+* name: Node identifier
+* drug_name: Drug most commom name, if aivailable
+* drugbank_id: DrugBank database identifier
+* chembl_id: ChEMBL database identifier
+* DILI_severity_class: Drug Induced Liver Injury severity class (from LTKB database)
+* vDILIConcern: Drug Induced Liver Injury concern (from LTKB database)
+* drug_has_side_effect: True or False, if the drug has reported side effects.
+
 ```{r}
 datatable(res_report$drugs)
 ```
+
 ## Drug target
+
+The following table lists all the drug targets in the subnetwork.
+
+Column description:
+
+* drug_id: drug node identifier
+* drug_name: drug most common name
+* target_id: drug target Uniprot identifier
+* target_name: target function
+
 ```{r}
 datatable(res_report$drugs.targets)
 ```
+
 ## Drug Side Effects
+
+The following table lists all the drug side effects in the subnetwork.
+
+Column description:
+
+* drug_name: drug most common name
+* drug_id: drug node identifier
+* side_effect: drug induced side effect present in the subnetwork.
+
 ```{r}
 datatable(res_report$drugs.side_effect)
 ```
+
 ## Drug shortest distance to signature
+
+In order to refine the subnetwork, the table below returns the closest node in the diffusion input for each drug.
+
+Column description:
+
+* drug_name: drug most common name
+* signature_name: displayed input node for diffusion, closest node from the drug node.
+* distance: geodesic distance between the drug node and input node.
+* gene_hepatox_Toxicology2014: True or False, if the node is connected to a hepatotoxic function (GO terms) from the list given in Toxicology2014
+* gene_hepatox_ToxicologyInVitro2020:  True or False, if the node is connected to a hepatotoxic function (GO terms) from the list given in ToxicologyInVitro2020
+* drug_node_id: drug node identifier
+* signature_node_id: input node identifier for diffusion.
+
 ```{r}
-datatable(res_report$drug.dist.signature)
+datatable(res_report$drug.dist.signature %>% arrange(distance))
 ```
 
 # Pathways
+
+The following section provides information on the *pathway* nodes returned in the subnetwork.
+
+Focus on drug nodes.
+
 ## Pathway infos
+
+General informations about the pathway nodes in the subnetworks.
+
+Column description:
+
+* name: displayed pathway name
+* pathway_name: pathway description
+* pathway_id: node identifier
+* pathway_database: database of pathway origin
+
 ```{r}
 datatable(res_report$pathways)
 ```
+
 ## Pathways shortest distance to signature
+
+To refine the subnetwork, the table below returns the closest node in the diffusion input from each pathway node.
+
+Column description:
+
+* pathway_name: pathway description
+* signature_name: displayed input node for diffusion, closest node from the pathway node.
+* distance: geodesic distance between the drug node and input node.
+* gene_hepatox_Toxicology2014: True or False, if the node is connected to a hepatotoxic function (GO terms) from the list given in Toxicology2014
+* gene_hepatox_ToxicologyInVitro2020:  True or False, if the node is connected to a hepatotoxic function (GO terms) from the list given in ToxicologyInVitro2020
+* display_node_id: displayed pathway node id.
+* signature_node_id: input node identifier for diffusion.
+
 ```{r}
 datatable(res_report$pathway.dist.signature)
 ```
 
 # GO terms hepatox
+
+The following section provides information on the *GO_term* nodes returned in the subnetwork.
+
+
 ## GO terms infos
+
+General informations about the GO terms nodes in thesubnetwork.
+
+Columns description:
+
+* name: GO displayed name
+* go_id: GO node identifier
+* go_ontology: GO term ontology
+* go_term_name: GO term description
+
 ```{r}
-datatable(res_report$pathway.dist.signature)
+datatable(res_report$GOs)
+
 ```
 ## GO shortest distance to signature
+
+To refine the subnetwork, the table below returns the closest node in the diffusion input from each pathway node.
+
+Column description:
+
+* GO_term: GO term description
+* signature_name: displayed input node for diffusion, closest node from the GO node.
+* distance: geodesic distance between the drug node and input node.
+* gene_hepatox_Toxicology2014: True or False, if the node is connected to a hepatotoxic function (GO terms) from the list given in Toxicology2014
+* gene_hepatox_ToxicologyInVitro2020:  True or False, if the node is connected to a hepatotoxic function (GO terms) from the list given in ToxicologyInVitro2020
+* display_node_id: displayed pathway node id.
+* signature_node_id: input node identifier for diffusion.
+
 ```{r}
-datatable(res_report$pathway.dist.signature)
+datatable(res_report$GO.dist.signature)
+```
+
+# Most visited nodes
+
+Column description:
+
+* name :
+* nb.visite : number of time
+* type : type of node
+* display_name : displayed node name in the network.
+
+Each input seed generates a path to the final subnetwork, and some parts of the entire network may be visited multiple times. In this table, we list the most visited nodes during the diffusion process.
+```{r}
+datatable(res_report$visite_autoraute)
+```
+
+# Module enrichment
+
+Enrichment analysis from diffusion input and diffusion results against modules.
+Node names are converted to UNIPROT_ID to perform enrichment.
+
+Column description:
+
+* module: module identifier.
+* k: number of diffusion targets inside the module
+* n: size of the module
+* K: sum of diffusion targets inside all modules
+* N: size of all module
+* enrich_module_p.value: Hypergeometric test pvalue
+* enrich_module_p.value_adj: Corrected pvalue (fdr)
+
+```{r}
+datatable(res_report$module_enrichment)
 ```
 "
 
@@ -382,3 +570,11 @@ produce_report <- function(report_infos, report_filename = "report.Rmd") {
 
 }
 
+make_contingency <- function(k, K, n, N){
+    dat <- matrix(data = c(k, K-k,
+                           n-k, N-n-k-K), ncol = 2, byrow = TRUE)
+
+    colnames(dat) <- c("gene.in.interest", "gene.not.interest")
+    rownames(dat) <- c("in.category", "not.in.category")
+    return(dat)
+}
