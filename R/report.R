@@ -171,8 +171,10 @@ report <- function(x){
          nest(enrich_module_count = -module) %>%
          mutate(enrich_module_contingency = imap(enrich_module_count, ~make_contingency(k = .x$k, K = .x$K, n = .x$n, N = .x$N))) %>%
          mutate(enrich_module_p.value = map_dbl(enrich_module_contingency, ~fisher.test(.x, alternative = "greater")$p.value)) %>%
-         mutate(enrich_module_p.value_adj = p.adjust(.$enrich_module_p.value, method = "fdr"))
-     dplyr::select(c(module, enrich_module_count, enrich_module_p.value, enrich_module_p.value_adj)) %>% unnest(cols = c(enrich_module_count)) %>% arrange(enrich_module_p.value)
+         mutate(enrich_module_p.value_adj = p.adjust(.$enrich_module_p.value, method = "fdr")) %>%
+         dplyr::select(c(module, enrich_module_count, enrich_module_p.value, enrich_module_p.value_adj)) %>%
+         unnest(cols = c(enrich_module_count)) %>%
+         arrange(enrich_module_p.value)
 
 
 
