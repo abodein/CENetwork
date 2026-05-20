@@ -1,0 +1,16 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+.DS_Store
+.RDataTmp
+
+# Older network versions — kept locally but not tracked
+data/liver_1.2_network.rda
+data/liver_1.3_network.rda
+data/liver_1.3_rwr_closest_dfr.rda
+data/liver_1.3.1_network.rda
+data/liver_1.3.1_rwr_closest_dfr.rda
+data/liver_1.4_network.rda
+data/liver_1.6_network.rda
+data/liver_1.6_rwr_closest_dfr.rda

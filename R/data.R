@@ -27,6 +27,33 @@
 #'
 "liver_1.3_rwr_closest_dfr"
 
+#' Liver specific multi-layer network v1.7
+#'
+#' Updated version of the liver network (v1.7), composed of 6 layers
+#' (gene, protein, drug/compound, pathway, side effect and hepatotoxicity GO terms).
+#' Compared to v1.3, this version extends the drug layer (DrugBank update),
+#' refines the GO term list, and includes pre-computed shortest paths
+#' across all seed–target pairs (see \code{liver_1.7_rwr_closest_dfr}).
+#'
+#' @format an igraph object
+#'
+"liver_1.7_network"
+
+
+#' Pre-calculated diffusion scores v1.7
+#'
+#' Pre-calculated closest neighbours from each seed node to every target layer,
+#' matching \code{liver_1.7_network}. The \code{shortest_path} column stores
+#' the ordered list of node names along each seed-to-target shortest path,
+#' enabling fast subnetwork extraction in \code{get_route()} without runtime
+#' igraph calls.
+#'
+#' @format a data.frame with columns: SeedNode, type.seed, NodeNames,
+#'   type.target, distance_from_start, shortest_path
+#'
+"liver_1.7_rwr_closest_dfr"
+
+
 #' Custom signature
 #'
 #' Custom gene signature from in house study.

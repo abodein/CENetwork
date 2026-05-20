@@ -23,16 +23,18 @@
 #' \item{input_diffusion}{signature_vids inside the network}
 #' \item{network}{the resulting subnetwork (igraph). Input seeds are tagged via the input_diffusion attribute. input_gene_signature and input_protein_signature attributes are set for corresponding nodes.}
 #' \item{closest}{closest_dfr filtered based on seed and target types}
-#' \item{permutation_results}{(only when do_permutation=TRUE) list of per-permutation summary stats: n_seeds_found, n_targets, n_nodes, closest_res}
+#' \item{permutation_results}{(only when do_permutation=TRUE) list of per-permutation summary stats: n_seeds_found, n_targets, n_nodes, visit_counts (named numeric vector of visit counts for each observed node)}
+#' \item{observed_visit_counts}{(only when do_permutation=TRUE) named numeric vector of visit counts for the observed network}
+#' \item{z_scores}{(only when do_permutation=TRUE) named numeric vector of z-scores per node}
 #'
 #' @examples
-#' data(liver_1.3_network)
-#' data(liver_1.3_rwr_closest_dfr)
+#' data(liver_1.7_network)
+#' data(liver_1.7_rwr_closest_dfr)
 #' data(signature_maison)
 #'
 #' signature_vids <- signature_maison$acetaminophen_all_all
 #'
-#' res.diffusion <- get_route(liver_1.3_network, liver_1.3_rwr_closest_dfr, signature_vids)
+#' res.diffusion <- get_route(liver_1.7_network, liver_1.7_rwr_closest_dfr, signature_vids)
 #'
 #' # With mandatory nodes (e.g. force a specific drug node into the route)
 #' res.diffusion <- get_route(liver_1.7_network, liver_1.7_rwr_closest_dfr, signature_vids,
@@ -53,13 +55,14 @@
 #' observed_n_nodes <- igraph::vcount(res.diffusion$network)
 #' p_value_global <- mean(permut_stats$n_nodes >= observed_n_nodes)
 #'
-#' # Node-level p-values (stored as vertex attribute and named vector)
-#' # p-value = proportion of permutations in which that node appeared by chance
-#' # low p-value => node is specifically enriched by the real signature
-#' head(sort(res.diffusion$node_pvalues))
+#' # Z-score per node: (observed_visit_count - mean_permut) / sd_permut
+#' # visit_count = number of seed->target shortest paths passing through the node
+#' # high z-score => node is visited much more than expected by chance
+#' head(sort(res.diffusion$z_scores, decreasing = TRUE))
 #'
-#' # Access directly from the network vertex attributes
-#' igraph::vertex_attr(res.diffusion$network, "permutation_pvalue")
+#' # Both visit_count and z_score are also stored as vertex attributes
+#' igraph::vertex_attr(res.diffusion$network, "visit_count")
+#' igraph::vertex_attr(res.diffusion$network, "z_score")
 #'
 #' @importFrom netOmics random_walk_restart
 #' @importFrom netOmics rwr_find_closest_type
@@ -171,39 +174,53 @@ get_route <- function(network, closest_dfr, signature_vids,
             unique(c(mandatory_nodes, sample(pool, n_gene_seeds)))
         })
 
+        observed_nodes <- igraph::V(result$network)$name
+
+        # Observed visit count: number of seed->target paths that pass through each node
+        observed_paths <- closest_res$shortest_path %>% purrr::keep(~!purrr::is_empty(.x))
+        observed_visit_counts <- vapply(observed_nodes, function(node) {
+            sum(vapply(observed_paths, function(p) node %in% p, logical(1L)))
+        }, numeric(1L))
+
+        # Permutation visit counts: same metric on randomised signatures
         permutation_results <- lapply(signature_permut, function(sig) {
             tryCatch({
                 cr <- closest_dfr %>%
                     dplyr::filter(SeedNode %in% sig) %>%
                     dplyr::filter(type.target %in% target_type)
 
-                ind_nodes <- cr$shortest_path %>%
-                    purrr::keep(~!purrr::is_empty(.x)) %>%
-                    unlist() %>%
-                    unique()
+                paths <- cr$shortest_path %>% purrr::keep(~!purrr::is_empty(.x))
+
+                visit_counts <- vapply(observed_nodes, function(node) {
+                    sum(vapply(paths, function(p) node %in% p, logical(1L)))
+                }, numeric(1L))
 
                 list(
                     n_seeds_found = length(unique(cr$SeedNode)),
                     n_targets     = length(unique(cr$NodeNames)),
-                    n_nodes       = length(ind_nodes),
-                    nodes         = ind_nodes,
-                    closest_res   = cr
+                    n_nodes       = sum(visit_counts > 0L),
+                    visit_counts  = visit_counts
                 )
             }, error = function(e) NULL)
         })
 
-        # Empirical p-value per node: proportion of permutations that contain each observed node
-        observed_nodes    <- igraph::V(result$network)$name
-        permut_node_sets  <- lapply(permutation_results, function(x) if (!is.null(x)) x$nodes else character(0))
+        # Z-score per node: (observed - mean_permut) / sd_permut
+        permut_matrix <- do.call(rbind, lapply(permutation_results, function(x) {
+            if (is.null(x)) rep(NA_real_, length(observed_nodes)) else x$visit_counts
+        }))
 
-        node_pvalues <- vapply(observed_nodes, function(node) {
-            mean(vapply(permut_node_sets, function(nodes) node %in% nodes, logical(1L)))
-        }, numeric(1L))
+        permut_means <- colMeans(permut_matrix, na.rm = TRUE)
+        permut_sds   <- apply(permut_matrix, 2L, sd, na.rm = TRUE)
 
-        igraph::vertex_attr(result$network, "permutation_pvalue") <- node_pvalues
+        z_scores <- (observed_visit_counts - permut_means) / permut_sds
+        z_scores[is.nan(z_scores) | !is.finite(z_scores)] <- NA_real_
 
-        result$permutation_results <- permutation_results
-        result$node_pvalues        <- node_pvalues
+        igraph::vertex_attr(result$network, "visit_count") <- observed_visit_counts
+        igraph::vertex_attr(result$network, "z_score")     <- z_scores
+
+        result$permutation_results    <- permutation_results
+        result$observed_visit_counts  <- observed_visit_counts
+        result$z_scores               <- z_scores
     }
 
     return(result)
