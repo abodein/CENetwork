@@ -4,10 +4,12 @@
 \alias{report}
 \title{Report}
 \usage{
-report(x)
+report(x, complete_network = NULL)
 }
 \arguments{
 \item{x}{diffusion results from get_route()}
+
+\item{complete_network}{igraph, same used in diffusion() to compute some distance metrics}
 }
 \value{
 A list of data.frame:

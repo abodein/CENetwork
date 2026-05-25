@@ -32,10 +32,10 @@
 #'
 #'
 #' @importFrom igraph vertex_attr make_ego_graph distances degree
-#' @importFrom dplyr filter select mutate bind_rows rename_with left_join pull group_by top_n ungroup arrange across
-#' @importFrom purrr imap set_names is_logical
+#' @importFrom dplyr filter select mutate bind_rows rename_with left_join pull group_by top_n ungroup arrange across summarise n
+#' @importFrom purrr imap set_names is_logical map_dbl imap_dbl map map_chr map_lgl keep
 #' @importFrom tibble rownames_to_column
-#' @importFrom  tidyr pivot_longer replace_na
+#' @importFrom tidyr pivot_longer replace_na nest unnest
 #' @export
 report <- function(x, complete_network = NULL){
 
@@ -197,12 +197,12 @@ report <- function(x, complete_network = NULL){
                    n = n()) %>% # taille module
          mutate(K = sum(k),  # nb of molecule in all modules
                 N = sum(n)) %>%   # size all modules
-         nest(enrich_module_count = -module) %>%
+         tidyr::nest(enrich_module_count = -module) %>%
          mutate(enrich_module_contingency = imap(enrich_module_count, ~make_contingency(k = .x$k, K = .x$K, n = .x$n, N = .x$N))) %>%
          mutate(enrich_module_p.value = map_dbl(enrich_module_contingency, ~fisher.test(.x, alternative = "greater")$p.value)) %>%
          mutate(enrich_module_p.value_adj = p.adjust(.$enrich_module_p.value, method = "fdr")) %>%
          dplyr::select(c(module, enrich_module_count, enrich_module_p.value, enrich_module_p.value_adj)) %>%
-         unnest(cols = c(enrich_module_count)) %>%
+         tidyr::unnest(cols = c(enrich_module_count)) %>%
          arrange(enrich_module_p.value)
 
      # add radar / ORA metrics — only when complete_network is provided
@@ -284,7 +284,7 @@ report <- function(x, complete_network = NULL){
                K = map_dbl(Ki, ~length(.x)),
                N = map_dbl(Ni, ~length(.x))) %>%
         group_by(name) %>%
-        nest(count = c(k, K, n, N)) %>%
+        tidyr::nest(count = c(k, K, n, N)) %>%
         # ORA
         mutate(contingency = imap(count, ~make_contingency(k = .x$k, K = .x$K, n = .x$n, N = .x$N))) %>%
         mutate(p.value = map_dbl(contingency, ~fisher.test(.x, alternative = "greater")$p.value)) %>%
@@ -315,7 +315,7 @@ report <- function(x, complete_network = NULL){
         mutate(enrich_module_p.value = map_dbl(enrich_module_contingency, ~fisher.test(.x, alternative = "greater")$p.value)) %>%
         mutate(enrich_module_p.value_adj = p.adjust(.$enrich_module_p.value, method = "fdr")) %>%
         dplyr::select(c(module, enrich_module_count, enrich_module_p.value, enrich_module_p.value_adj)) %>%
-        unnest(cols = c(enrich_module_count)) %>%
+        tidyr::unnest(cols = c(enrich_module_count)) %>%
         arrange(enrich_module_p.value) %>%
         filter(enrich_module_p.value_adj < 0.05) %>%
         pull(module)
@@ -381,7 +381,7 @@ report <- function(x, complete_network = NULL){
 #' @importFrom checkmate assert_logical assertPathForOutput
 #' @importFrom purrr imap_dfr
 #' @importFrom rmarkdown render
-#' @importFrom stringr str_remove_all str_replace_all
+#' @importFrom stringr str_remove_all str_replace_all str_detect
 #' @export
 produce_diffusion_report <- function(res_report,
                                      report_title,

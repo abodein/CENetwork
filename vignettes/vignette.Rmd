@@ -235,6 +235,158 @@ shared <- intersect(
 cat("GO terms significant in both drugs:", length(shared), "\n")
 ```
 
+# Comparison with ORA and GSEA
+
+Network diffusion captures topological signal propagation that standard
+enrichment methods miss.  This section benchmarks diffusion results against ORA
+(`clusterProfiler`) and GSEA (`gseGO` / `gsePathway`), filtered to the same
+hepatotoxicity-specific background extracted from the liver network.
+
+Pre-computed results are provided as the `comparison_ora_gsea` dataset.  The
+code that generated them is shown below for reference.
+
+```{r comparison_load}
+data(comparison_ora_gsea)
+```
+
+## Venn diagrams
+
+Each panel compares the three methods on a common network-constrained background
+(GOTox or Reactome pathway nodes present in the liver network).  Diffusion-unique
+terms reflect topological signal invisible to gene-level methods.
+
+```{r comparison_venn, fig.width = 10, fig.height = 10}
+library(ggvenn)
+library(patchwork)
+
+venn_colors <- c("#fff9be", "#bdf4ff", "#ffbdda")
+
+g1 <- ggvenn::ggvenn(
+  list("Diffusion" = comparison_ora_gsea$diffusion_go_apap,
+       "ORA"       = comparison_ora_gsea$ora_go_apap$ID,
+       "GSEA"      = comparison_ora_gsea$gsea_go_apap$ID),
+  fill_color = venn_colors, text_size = 4, set_name_size = 4,
+  show_percentage = FALSE
+) + ggplot2::ggtitle("A. Acetaminophen – GO terms")
+
+g2 <- ggvenn::ggvenn(
+  list("Diffusion" = comparison_ora_gsea$diffusion_pathway_apap,
+       "ORA"       = comparison_ora_gsea$ora_reactome_apap$ID,
+       "GSEA"      = comparison_ora_gsea$gsea_reactome_apap$ID),
+  fill_color = venn_colors, text_size = 4, set_name_size = 4,
+  show_percentage = FALSE
+) + ggplot2::ggtitle("B. Acetaminophen – Reactome")
+
+g3 <- ggvenn::ggvenn(
+  list("Diffusion" = comparison_ora_gsea$diffusion_go_vpa,
+       "ORA"       = comparison_ora_gsea$ora_go_vpa$ID,
+       "GSEA"      = comparison_ora_gsea$gsea_go_vpa$ID),
+  fill_color = venn_colors, text_size = 4, set_name_size = 4,
+  show_percentage = FALSE
+) + ggplot2::ggtitle("C. Valproic acid – GO terms")
+
+g4 <- ggvenn::ggvenn(
+  list("Diffusion" = comparison_ora_gsea$diffusion_pathway_vpa,
+       "ORA"       = comparison_ora_gsea$ora_reactome_vpa$ID,
+       "GSEA"      = comparison_ora_gsea$gsea_reactome_vpa$ID),
+  fill_color = venn_colors, text_size = 4, set_name_size = 4,
+  show_percentage = FALSE
+) + ggplot2::ggtitle("D. Valproic acid – Reactome")
+
+(g1 + g2) / (g3 + g4)
+```
+
+## Code used to generate `comparison_ora_gsea`
+
+The following chunks show how the ORA and GSEA results were produced.
+GSEA requires log2FoldChange scores from a differential expression analysis.
+
+```{r comparison_background, eval = FALSE}
+library(org.Hs.eg.db)
+library(clusterProfiler)
+library(ReactomePA)
+
+GOTox <- igraph::vertex_attr(liver_1.7_network) |>
+  as.data.frame() |>
+  dplyr::filter(type == "GO") |>
+  dplyr::pull(name)
+
+pathway_background <- igraph::vertex_attr(liver_1.7_network) |>
+  as.data.frame() |>
+  dplyr::filter(type == "pathway") |>
+  dplyr::pull(name)
+```
+
+```{r comparison_ora, eval = FALSE}
+run_ora_go <- function(sig_ensembl) {
+  clusterProfiler::enrichGO(
+    gene          = sig_ensembl,
+    keyType       = "ENSEMBL",
+    OrgDb         = org.Hs.eg.db,
+    ont           = "all",
+    pAdjustMethod = "none",
+    pvalueCutoff  = 1,
+    qvalueCutoff  = 1
+  )@result |>
+    dplyr::filter(ID %in% GOTox) |>
+    dplyr::mutate(qvalue = p.adjust(pvalue, method = "fdr")) |>
+    dplyr::filter(qvalue < 0.05)
+}
+
+run_ora_reactome <- function(sig_ensembl) {
+  entrez <- AnnotationDbi::select(org.Hs.eg.db, keys = sig_ensembl,
+                                  keytype = "ENSEMBL", columns = "ENTREZID") |>
+    na.omit() |> dplyr::pull(ENTREZID) |> unique()
+  ReactomePA::enrichPathway(gene = entrez, pvalueCutoff = 1,
+                            pAdjustMethod = "none")@result |>
+    dplyr::filter(ID %in% pathway_background) |>
+    dplyr::mutate(qvalue = p.adjust(pvalue, method = "fdr")) |>
+    dplyr::filter(qvalue < 0.05)
+}
+
+ora_go_apap       <- run_ora_go(sig_apap)
+ora_go_vpa        <- run_ora_go(sig_vpa)
+ora_reactome_apap <- run_ora_reactome(sig_apap)
+ora_reactome_vpa  <- run_ora_reactome(sig_vpa)
+```
+
+```{r comparison_gsea, eval = FALSE}
+# scores_apap / scores_vpa: log2FC named vector (ENSEMBL), sorted decreasingly
+run_gsea_go <- function(scores) {
+  clusterProfiler::gseGO(geneList = scores, OrgDb = org.Hs.eg.db,
+                         keyType = "ENSEMBL", ont = "all",
+                         pvalueCutoff = 1, verbose = FALSE)@result |>
+    dplyr::filter(ID %in% GOTox) |>
+    dplyr::mutate(qvalue = p.adjust(pvalue, method = "fdr")) |>
+    dplyr::filter(qvalue < 0.05)
+}
+
+run_gsea_reactome <- function(scores) {
+  scores_entrez <- scores |>
+    as.data.frame() |> stats::setNames("score") |>
+    tibble::rownames_to_column("ENSEMBL") |>
+    dplyr::left_join(AnnotationDbi::select(org.Hs.eg.db, keys = names(scores),
+                                           keytype = "ENSEMBL",
+                                           columns = "ENTREZID"),
+                     by = "ENSEMBL") |>
+    na.omit() |>
+    dplyr::group_by(ENTREZID) |>
+    dplyr::summarise(score = median(score), .groups = "drop") |>
+    dplyr::arrange(dplyr::desc(score)) |>
+    tibble::deframe()
+  ReactomePA::gsePathway(scores_entrez, pvalueCutoff = 1,
+                         pAdjustMethod = "none", verbose = FALSE)@result |>
+    dplyr::filter(ID %in% pathway_background) |>
+    dplyr::mutate(qvalue = p.adjust(pvalue, method = "fdr")) |>
+    dplyr::filter(qvalue < 0.05)
+}
+
+gsea_go_apap       <- run_gsea_go(scores_apap)
+gsea_go_vpa        <- run_gsea_go(scores_vpa)
+gsea_reactome_apap <- run_gsea_reactome(scores_apap)
+gsea_reactome_vpa  <- run_gsea_reactome(scores_vpa)
+```
+
 
 # Dashboard
 
