@@ -71,3 +71,35 @@
 #'
 "module_ppi_M1_20231211"
 
+
+#' ORA and GSEA comparison results for APAP and VPA
+#'
+#' Pre-computed enrichment results for acetaminophen (APAP) and valproic acid
+#' (VPA) from three methods — network diffusion, ORA, and GSEA — all filtered
+#' to the hepatotoxicity-specific background of \code{liver_1.7_network}.
+#' Intended for use in the vignette comparison section.
+#'
+#' ORA was run with \code{clusterProfiler::enrichGO()} /
+#' \code{ReactomePA::enrichPathway()}, GSEA with \code{gseGO()} /
+#' \code{gsePathway()}, both with \code{pAdjustMethod = "none"} and
+#' \code{pvalueCutoff = 1}, then re-filtered to the network background and
+#' FDR-adjusted (\code{qvalue < 0.05}).
+#'
+#' @format A named list with 12 elements:
+#' \describe{
+#'   \item{diffusion_go_apap}{Character vector of significant GO term IDs (APAP)}
+#'   \item{diffusion_go_vpa}{Character vector of significant GO term IDs (VPA)}
+#'   \item{diffusion_pathway_apap}{Character vector of significant Reactome pathway IDs (APAP)}
+#'   \item{diffusion_pathway_vpa}{Character vector of significant Reactome pathway IDs (VPA)}
+#'   \item{ora_go_apap}{data.frame of significant ORA GO results (APAP)}
+#'   \item{ora_go_vpa}{data.frame of significant ORA GO results (VPA)}
+#'   \item{gsea_go_apap}{data.frame of significant GSEA GO results (APAP)}
+#'   \item{gsea_go_vpa}{data.frame of significant GSEA GO results (VPA)}
+#'   \item{ora_reactome_apap}{data.frame of significant ORA Reactome results (APAP)}
+#'   \item{ora_reactome_vpa}{data.frame of significant ORA Reactome results (VPA)}
+#'   \item{gsea_reactome_apap}{data.frame of significant GSEA Reactome results (APAP)}
+#'   \item{gsea_reactome_vpa}{data.frame of significant GSEA Reactome results (VPA)}
+#' }
+#'
+"comparison_ora_gsea"
+

@@ -8,7 +8,11 @@ get_route(
   network,
   closest_dfr,
   signature_vids,
-  target_type = c("pathway", "drug/compound")
+  target_type = c("pathway", "drug/compound"),
+  mandatory_nodes = NULL,
+  do_permutation = FALSE,
+  n_permut = 100,
+  seed_permut = 123
 )
 }
 \arguments{
@@ -19,12 +23,24 @@ get_route(
 \item{signature_vids}{(character) list of seeds, names of vertices in the network}
 
 \item{target_type}{(character) list of layers to force the diffusion; closest_dfr is filtered based on target types.}
+
+\item{mandatory_nodes}{(character) optional list of node names that must be included in the route as waypoints.
+Shortest paths from seeds and targets to each mandatory node are computed and added to the induced subnetwork.}
+
+\item{do_permutation}{(logical) whether to run permutation analysis to assess significance}
+
+\item{n_permut}{(integer) number of permutations (default 100)}
+
+\item{seed_permut}{(integer) random seed for reproducibility (default 123)}
 }
 \value{
-Return a list with 2 items:
+Return a list with items:
 \item{input_diffusion}{signature_vids inside the network}
-\item{network}{the resulting subnetork (igraph). In addition, input seeds are tagged in the network (input_diffusion attribute). Also input_gene_signature and input_protein_signature attributes are set to TRUE if corresponding nodes are present in the subnetowrk.}
+\item{network}{the resulting subnetwork (igraph). Input seeds are tagged via the input_diffusion attribute. input_gene_signature and input_protein_signature attributes are set for corresponding nodes.}
 \item{closest}{closest_dfr filtered based on seed and target types}
+\item{permutation_results}{(only when do_permutation=TRUE) list of per-permutation summary stats: n_seeds_found, n_targets, n_nodes, visit_counts (named numeric vector of visit counts for each observed node)}
+\item{observed_visit_counts}{(only when do_permutation=TRUE) named numeric vector of visit counts for the observed network}
+\item{z_scores}{(only when do_permutation=TRUE) named numeric vector of z-scores per node}
 }
 \description{
 This function spreads a signal over the network from an entrance point (seeds) on the network via the random walk strategy.
@@ -37,12 +53,40 @@ For each seed, the nearest neighbours per layer are selected.
 Finally, a sub-network is returned by shortest paths including the nearest neighbours per seed.
 }
 \examples{
-data(liver_1.3_network)
-data(liver_1.3_rwr_closest_dfr)
+data(liver_1.7_network)
+data(liver_1.7_rwr_closest_dfr)
 data(signature_maison)
 
 signature_vids <- signature_maison$acetaminophen_all_all
 
-res.diffusion <- get_route(liver_1.3_network, liver_1.3_rwr_closest_dfr, signature_vids)
+res.diffusion <- get_route(liver_1.7_network, liver_1.7_rwr_closest_dfr, signature_vids)
+
+# With mandatory nodes (e.g. force a specific drug node into the route)
+res.diffusion <- get_route(liver_1.7_network, liver_1.7_rwr_closest_dfr, signature_vids,
+                           mandatory_nodes = "DB00316")
+
+# With permutation analysis (assess significance of the observed route)
+res.diffusion <- get_route(liver_1.7_network, liver_1.7_rwr_closest_dfr, signature_vids,
+                           do_permutation = TRUE, n_permut = 10, seed_permut = 123)
+
+# Inspect permutation results
+permut_stats <- do.call(rbind, lapply(res.diffusion$permutation_results, function(x) {
+  data.frame(n_seeds_found = x$n_seeds_found,
+             n_targets     = x$n_targets,
+             n_nodes       = x$n_nodes)
+}))
+
+# Compare observed vs null distribution (e.g. number of nodes)
+observed_n_nodes <- igraph::vcount(res.diffusion$network)
+p_value_global <- mean(permut_stats$n_nodes >= observed_n_nodes)
+
+# Z-score per node: (observed_visit_count - mean_permut) / sd_permut
+# visit_count = number of seed->target shortest paths passing through the node
+# high z-score => node is visited much more than expected by chance
+head(sort(res.diffusion$z_scores, decreasing = TRUE))
+
+# Both visit_count and z_score are also stored as vertex attributes
+igraph::vertex_attr(res.diffusion$network, "visit_count")
+igraph::vertex_attr(res.diffusion$network, "z_score")
 
 }

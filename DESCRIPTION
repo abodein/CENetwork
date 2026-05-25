@@ -14,8 +14,9 @@ LazyData: true
 VignetteBuilder: knitr
 Imports: 
     netOmics,
-    RandomWalkRestartMH,
     igraph,
+    Matrix,
+    cli,
     RCy3,
     purrr,
     tidyr,
@@ -23,15 +24,18 @@ Imports:
     tibble,
     org.Hs.eg.db,
     magrittr,
-    progress,
     checkmate,
-    AnnotationDbi, 
+    AnnotationDbi,
     rmarkdown, 
     stringr,
     knitr
 Depends: 
     R (>= 3.5.0)
-RoxygenNote: 7.2.3
-Suggests: 
-    testthat (>= 3.0.0)
+RoxygenNote: 7.3.3
+Suggests:
+    testthat (>= 3.0.0),
+    ggvenn,
+    patchwork,
+    clusterProfiler,
+    ReactomePA
 Config/testthat/edition: 3
