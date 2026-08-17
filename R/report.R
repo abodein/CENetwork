@@ -765,7 +765,6 @@ make_contingency <- function(k, K, n, N){
     return(dat)
 }
 
-#' @importFrom ggradar ggradar
 make_ggradar <- function(x, max.upper.limit, mode_pvalue_highlight = c("-10log10pval", "1-pval"), interactive = FALSE){
     # make ggradar df
     max.upper.limit <- 30
@@ -814,9 +813,12 @@ make_ggradar <- function(x, max.upper.limit, mode_pvalue_highlight = c("-10log10
             )
         return(fig)
     } else {
+        if (!requireNamespace("ggradar", quietly = TRUE))
+            stop("the static radar plot needs the 'ggradar' package: ",
+                 'remotes::install_github("ricardo-bion/ggradar")')
         p <- ggradar_df %>% dplyr::select(name, trans.pval) %>% column_to_rownames("name") %>% t %>%
             as.data.frame %>% rownames_to_column("group") %>%
-            ggradar(fill = TRUE,
+            ggradar::ggradar(fill = TRUE,
                     group.point.size = 2,
                     group.colours = "#00AFBB",
                     group.line.width = 1, grid.mid = 0.43,
@@ -939,10 +941,8 @@ produce_quarto_dashboard <- function(res_report,
     saveRDS(se_to_severity,   path_se_to_severity)
 
     # Read template and substitute placeholders --------------------------------
-    # template_path <- system.file("templates", "dashboard_template.qmd",
-    #                              package = "CENetwork")
-    # temporairement
-    template_path <- "/Users/antoine/Documents/DEV/CENetwork/inst/templates/dashboard_template.qmd"
+    template_path <- system.file("templates", "dashboard_template.qmd",
+                                 package = "CENetwork")
     if (!nzchar(template_path)) {
         stop("Dashboard template not found. Is CENetwork installed / loaded with devtools::load_all()?")
     }

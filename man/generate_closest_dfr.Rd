@@ -14,3 +14,18 @@ generate_closest_dfr(network, res_tmp_matrix)
 \description{
 From RWR result matrix generate closest dfr based on "type" attribue
 }
+\examples{
+library(igraph)
+
+set.seed(42)
+n <- 200
+g <- igraph::sample_gnm(n, n * 3, directed = FALSE)
+igraph::V(g)$name <- paste0("node", seq_len(n))
+igraph::V(g)$type <- rep(c("A", "B", "C", "D"), length.out = n)
+
+rwr_matrix <- RWR_build_complete(g)
+closest <- generate_closest_dfr(network = g, res_tmp_matrix = rwr_matrix)
+# closest is a data.frame: SeedNode, type.seed, NodeNames, type.target
+head(closest)
+
+}

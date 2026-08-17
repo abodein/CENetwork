@@ -2,19 +2,38 @@
 % Please edit documentation in R/internal_RWR.R
 \name{RWR_build_complete}
 \alias{RWR_build_complete}
-\title{` RWR scores}
+\title{RWR scores}
 \usage{
-RWR_build_complete(X, verbose = TRUE)
+RWR_build_complete(X, restart = 0.7, verbose = TRUE)
 }
 \arguments{
 \item{X}{(igraph) network}
 
+\item{restart}{(numeric) restart probability, default = 0.7}
+
 \item{verbose}{(logical) default = TRUE}
 }
 \value{
-a data.frame
+a data.frame (seed in rows, target in columns)
 }
 \description{
-Generate all random walk scores. Iteratively, each node become the seed.
+Generate all random walk scores for all seeds simultaneously using the
+analytical solution: P = r * solve(I - (1-r) * W^T), where W is the
+column-stochastic transition matrix. Uses sparse LU factorisation (UMFPACK)
+via the Matrix package so the factorisation step stays sparse even for
+large networks (~6k nodes).
 Return the RWR for the connected nodes in the network as a squared data.frame.
+}
+\examples{
+library(igraph)
+
+set.seed(42)
+n <- 200
+g <- igraph::sample_gnm(n, n * 3, directed = FALSE)
+igraph::V(g)$name <- paste0("node", seq_len(n))
+igraph::V(g)$type <- rep(c("A", "B", "C", "D"), length.out = n)
+
+rwr_matrix <- RWR_build_complete(g)
+# rwr_matrix is a 50x50 data.frame: rwr_matrix[seed, target]
+dim(rwr_matrix)
 }

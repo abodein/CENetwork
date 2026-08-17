@@ -2,6 +2,7 @@
 % Please edit documentation in R/CENetwork-package.R
 \docType{package}
 \name{CENetwork}
+\alias{CENetwork-package}
 \alias{CENetwork}
 \title{CENetwork: Network exploration}
 \description{

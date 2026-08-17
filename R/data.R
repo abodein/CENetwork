@@ -54,6 +54,31 @@
 "liver_1.7_rwr_closest_dfr"
 
 
+#' Liver specific multi-layer network v1.8
+#'
+#' Current reference version of the liver network. Identical to v1.7 except for
+#' the pathway layer, pruned from 2018 to 814 Reactome pathways by keeping only
+#' those mapping to hepatotoxicity key characteristics (Tsai et al. 2025).
+#' Pruning removes the generic root pathways (Metabolism, Signal Transduction, …)
+#' that acted as diffusion hubs and dominated the enrichment results.
+#'
+#' @format an igraph object
+#'
+"liver_1.8_network"
+
+
+#' Pre-calculated diffusion scores v1.8
+#'
+#' Pre-calculated closest neighbours from each seed node to every target layer,
+#' matching \code{liver_1.8_network}. Same format as
+#' \code{liver_1.7_rwr_closest_dfr}.
+#'
+#' @format a data.frame with columns: SeedNode, type.seed, NodeNames,
+#'   type.target, shortest_path
+#'
+"liver_1.8_rwr_closest_dfr"
+
+
 #' Custom signature
 #'
 #' Custom gene signature from in house study.
@@ -76,7 +101,7 @@
 #'
 #' Pre-computed enrichment results for acetaminophen (APAP) and valproic acid
 #' (VPA) from three methods — network diffusion, ORA, and GSEA — all filtered
-#' to the hepatotoxicity-specific background of \code{liver_1.7_network}.
+#' to the hepatotoxicity-specific background of \code{liver_1.8_network}.
 #' Intended for use in the vignette comparison section.
 #'
 #' ORA was run with \code{clusterProfiler::enrichGO()} /

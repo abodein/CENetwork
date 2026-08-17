@@ -10,5 +10,5 @@ pipeline_RWR(X)
 \item{X}{network}
 }
 \description{
-Run RWR_build_complete and generate_closest_dfr
+Run RWR_build_complete, generate_closest_dfr and get_all_routes
 }

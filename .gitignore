@@ -14,3 +14,14 @@ data/liver_1.3.1_rwr_closest_dfr.rda
 data/liver_1.4_network.rda
 data/liver_1.6_network.rda
 data/liver_1.6_rwr_closest_dfr.rda
+
+# Unpruned v1.8 networks — superseded by the pruned reference versions
+data/liver_1.8_full_network.rda
+data/liver_1.8_full_rwr_closest_dfr.rda
+
+# Raw primary resources — distributed through the Zenodo archive, not this repo
+data-raw/liver/ressources.tar.gz
+data-raw/liver/ressources/
+
+# Local working files
+autre/

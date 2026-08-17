@@ -1,0 +1,691 @@
+---
+title: "{{DASHBOARD_TITLE}}"
+format:
+  dashboard:
+    embed-resources: true
+    theme: flatly
+    scrolling: true
+    engine: knitr
+    expandable: false
+---
+
+:::{.hidden}
+```{=html}
+<link
+  rel="stylesheet"
+  href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css"
+/>
+```
+:::
+
+```{r setup, echo = FALSE, message = FALSE, warning = FALSE}
+library(visNetwork)
+library(tidyverse)
+library(htmltools)
+library(bsplus)
+library(colorspace)
+library(tippy)
+library(reactable)
+library(DT)
+library(plotly)
+library(igraph)
+library(gprofiler2)
+
+res_report      <- readRDS("{{PATH_RES_REPORT}}")
+res_diffusion   <- readRDS("{{PATH_RES_DIFFUSION}}")
+complete_network <- readRDS("{{PATH_COMPLETE_NETWORK}}")
+se_to_severity  <- readRDS("{{PATH_SE_TO_SEVERITY}}")
+
+# Package data
+data("module_ppi_M1_20231211", package = "CENetwork")
+
+# Node type colour palette
+protein_color <- "#ffa500"
+gene_color    <- "#ADD8E6"
+go_color      <- "#D3D3D3"
+pathway_color <- "#2f9ec2"
+se_color      <- "#a8c71e"
+drug_color    <- "#ff00b4"
+
+apply_graph_custom <- function(g) {
+  h <- g
+  igraph::vertex_attr(h) <- igraph::vertex_attr(h) %>%
+    as.data.frame() %>%
+    mutate(color = case_when(
+      type == "protein"      ~ protein_color,
+      type == "gene"         ~ gene_color,
+      type == "GO"           ~ go_color,
+      type == "pathway"      ~ pathway_color,
+      type == "side_effect"  ~ se_color,
+      type == "drug/compound" ~ drug_color,
+      TRUE ~ "grey"
+    )) %>%
+    mutate(prefix_type = case_when(
+      type == "protein"      ~ "p:",
+      type == "gene"         ~ "g:",
+      type == "GO"           ~ "go:",
+      type == "pathway"      ~ "r:",
+      type == "side_effect"  ~ "se:",
+      type == "drug/compound" ~ "d:",
+      TRUE ~ ""
+    )) %>%
+    mutate(border = ifelse(TG | TF, "red", "grey")) %>%
+    mutate(shape  = ifelse(input_diffusion, "star", "dot")) %>%
+    mutate(frame.width = 5) %>%
+    mutate(oldname = name) %>%
+    mutate(name = paste0(prefix_type, display_name)) %>%
+    as.list()
+  return(h)
+}
+```
+
+```{r prep, echo = FALSE, cache = FALSE}
+g         <- res_diffusion$network
+g_global  <- apply_graph_custom(g)
+g_attr    <- igraph::vertex_attr(g) %>% as.data.frame() %>%
+  left_join(se_to_severity, by = c("name" = "se"))
+
+g_types    <- igraph::vertex_attr(g) %>% as.data.frame() %>%
+  split(.$type) %>% imap(~.x %>% pull(name))
+
+g_long_df <- igraph::as_long_data_frame(g)
+
+# Subgraphs
+ids_drugs_se  <- g_long_df %>% filter(from_type == "drug/compound") %>%
+  { unique(c(.$from_name, .$to_name)) }
+ids_drugs_tgt <- g_long_df %>% filter(to_type == "drug/compound") %>%
+  { unique(c(.$from_name, .$to_name)) }
+ids_pathway   <- g_long_df %>% filter(to_type == "pathway") %>%
+  { unique(c(.$from_name, .$to_name)) }
+ids_go_gene   <- g_long_df %>% filter(to_type == "GO", from_type == "gene") %>%
+  { unique(c(.$from_name, .$to_name)) }
+ids_go_prot   <- g_long_df %>% filter(to_type == "GO", from_type == "protein") %>%
+  { unique(c(.$from_name, .$to_name)) }
+
+g_drugs   <- igraph::induced_subgraph(g, c(ids_drugs_se, ids_drugs_tgt)) %>% apply_graph_custom()
+g_pathway <- igraph::induced_subgraph(g, ids_pathway) %>% apply_graph_custom()
+g_gos     <- igraph::induced_subgraph(g, c(ids_go_gene, ids_go_prot)) %>% apply_graph_custom()
+
+g_proteins <- igraph::induced_subgraph(g, g_types$protein) %>% apply_graph_custom()
+vertex_attr(g_proteins) <- vertex_attr(g_proteins) %>% as.data.frame() %>%
+  left_join(module_ppi_M1_20231211, by = c("oldname" = "molecule")) %>%
+  mutate(module = str_remove(module, ".*_") %>% as.numeric()) %>%
+  mutate(color = module) %>%
+  as.list()
+
+# Input table
+tab_input <- left_join(
+  res_report$degree_signature,
+  g_global %>% vertex_attr() %>% as.data.frame() %>% dplyr::select(oldname, type),
+  by = c("name" = "oldname")
+)
+
+# Module enrichment table (graph level)
+graph_module_info <- module_ppi_M1_20231211 %>%
+  mutate(in_graph = molecule %in% g_types$protein) %>%
+  group_by(module) %>%
+  summarise(k = sum(in_graph), n = n()) %>%
+  filter(k != 0) %>%
+  arrange(desc(k)) %>%
+  mutate(K = sum(k), N = sum(n)) %>%
+  nest(count = -module) %>%
+  mutate(contingency = imap(count, ~CENetwork:::make_contingency(k = .x$k, K = .x$K, n = .x$n, N = .x$N))) %>%
+  mutate(pvalue = map_dbl(contingency, ~fisher.test(.x, alternative = "greater")$p.value)) %>%
+  mutate(padj   = p.adjust(.$pvalue, method = "fdr")) %>%
+  dplyr::select(module, count, pvalue, padj) %>%
+  unnest(cols = count) %>%
+  arrange(padj) %>%
+  mutate(pvalue = round(pvalue, 2), padj = round(padj, 2))
+
+# DILI / SE severity enrichment
+va_complete <- complete_network %>% vertex_attr() %>% as.data.frame() %>%
+  left_join(se_to_severity, by = c("name" = "se"))
+
+stat_enrich_drugs <- tribble(
+  ~name, ~ki, ~Ki, ~ni, ~Ni,
+  "Ambiguous DILI",
+    filter(g_attr,    vDILIConcern == "Ambiguous DILI-Concern") %>% pull(name),
+    filter(va_complete, vDILIConcern == "Ambiguous DILI-Concern") %>% pull(name),
+    g_attr$name, va_complete$name,
+  "Less DILI",
+    filter(g_attr,    vDILIConcern == "vLess-DILI-Concern") %>% pull(name),
+    filter(va_complete, vDILIConcern == "vLess-DILI-Concern") %>% pull(name),
+    g_attr$name, va_complete$name,
+  "Most DILI",
+    filter(g_attr,    vDILIConcern == "vMost-DILI-Concern") %>% pull(name),
+    filter(va_complete, vDILIConcern == "vMost-DILI-Concern") %>% pull(name),
+    g_attr$name, va_complete$name,
+  "SE Severity: Mild",
+    filter(g_attr,    max_severity == "Mild") %>% pull(name),
+    filter(va_complete, max_severity == "Mild") %>% pull(name),
+    g_attr$name, va_complete$name,
+  "SE Severity: Moderate",
+    filter(g_attr,    max_severity == "Moderate") %>% pull(name),
+    filter(va_complete, max_severity == "Moderate") %>% pull(name),
+    g_attr$name, va_complete$name,
+  "SE Severity: Severe",
+    filter(g_attr,    max_severity == "Severe") %>% pull(name),
+    filter(va_complete, max_severity == "Severe") %>% pull(name),
+    g_attr$name, va_complete$name,
+  "SE Severity: Lifethreatening",
+    filter(g_attr,    max_severity == "Lifethreatening") %>% pull(name),
+    filter(va_complete, max_severity == "Lifethreatening") %>% pull(name),
+    g_attr$name, va_complete$name,
+  "SE Severity: Death",
+    filter(g_attr,    max_severity == "Death") %>% pull(name),
+    filter(va_complete, max_severity == "Death") %>% pull(name),
+    g_attr$name, va_complete$name
+) %>%
+  mutate(
+    k = map_dbl(ki, ~length(.x)),
+    n = map_dbl(ni, ~length(.x)),
+    K = map_dbl(Ki, ~length(.x)),
+    N = map_dbl(Ni, ~length(.x))
+  ) %>%
+  group_by(name) %>%
+  nest(count = c(k, K, n, N)) %>%
+  mutate(contingency = imap(count, ~CENetwork:::make_contingency(k = .x$k, K = .x$K, n = .x$n, N = .x$N))) %>%
+  mutate(p.value = map_dbl(contingency, ~fisher.test(.x, alternative = "greater")$p.value)) %>%
+  mutate(padj    = p.adjust(p.value, method = "fdr")) %>%
+  mutate(
+    ki_length = imap_dbl(ki, ~length(.x)),
+    ni_length = imap_dbl(ni, ~length(.x)),
+    Ki_length = imap_dbl(Ki, ~length(.x)),
+    Ni_length = imap_dbl(Ni, ~length(.x))
+  ) %>%
+  dplyr::select(ki_length, ni_length, Ki_length, Ni_length, p.value, padj)
+
+# gprofiler enrichments
+gost_res_go   <- gost(query = g_types$gene, organism = "hsapiens", sources = "GO",
+                      highlight = TRUE, significant = FALSE)
+gost_plot_go  <- gostplot(gost_res_go)
+
+gost_res_path  <- gost(query = g_types$gene, organism = "hsapiens",
+                       sources = c("KEGG", "REAC", "WP"),
+                       highlight = TRUE, significant = FALSE)
+gost_plot_path <- gostplot(gost_res_path)
+
+# Permutation enrichment — joined into pathway/GO tables when available
+# getFromNamespace works even if the function is not yet exported (dev workflow).
+# CENetwork namespace is already loaded via data(..., package = "CENetwork") above.
+.cde_fn <- tryCatch(
+  getFromNamespace("compute_diffusion_enrichment", "CENetwork"),
+  error = function(e) NULL
+)
+
+enrich_permut <- NULL
+if (!is.null(.cde_fn) &&
+    !is.null(res_diffusion$permutation_results) &&
+    !is.null(res_diffusion$observed_visit_counts)) {
+  enrich_permut <- tryCatch(
+    .cde_fn(res_diffusion,
+            target_types    = c("GO", "pathway"),
+            min_visit_count = 1L),
+    error = function(e) NULL
+  )
+}
+
+permut_cols <- c("visit_count", "mean_perm", "sd_perm", "z_score", "pvalue", "padj")
+
+pathways_display <- res_report$pathways
+GOs_display      <- res_report$GOs
+
+if (!is.null(enrich_permut)) {
+  enrich_path <- enrich_permut %>% filter(type == "pathway") %>%
+    dplyr::select(term, all_of(permut_cols))
+  enrich_go   <- enrich_permut %>% filter(type == "GO") %>%
+    dplyr::select(term, all_of(permut_cols))
+
+  pathways_display <- pathways_display %>%
+    left_join(enrich_path, by = c("name" = "term"))
+  GOs_display <- GOs_display %>%
+    left_join(enrich_go, by = c("name" = "term"))
+}
+```
+
+```{r helpers, echo = FALSE}
+with_tooltip <- function(value, tooltip, ...) {
+  div(
+    style = "text-decoration: underline; text-decoration-style: dotted; cursor: help",
+    tippy::tippy(value, tooltip, ...)
+  )
+}
+
+download_btn <- function(element_id) {
+  tags$button(
+    "Download as CSV",
+    onclick = sprintf("Reactable.downloadDataCSV('%s')", element_id),
+    style = "margin-top:10px; display:inline-block; width:auto; padding:6px 12px;
+             font-size:14px; border-radius:4px; background-color:lightgrey;
+             color:white; border:none; cursor:pointer;"
+  )
+}
+
+row_color_style <- function(df) {
+  function(index) {
+    t <- df[index, "type"]
+    col <- switch(t,
+      "drug/compound" = drug_color,
+      "gene"          = gene_color,
+      "protein"       = protein_color,
+      "GO"            = go_color,
+      "side_effect"   = se_color,
+      "pathway"       = pathway_color,
+      NULL
+    )
+    if (!is.null(col)) list(background = colorspace::lighten(col, amount = 0.9))
+  }
+}
+
+scrollable_reactable <- function(df, element_id, row_style_fn = NULL,
+                                  fixed_row_style = NULL) {
+  args <- list(
+    data       = df,
+    filterable = TRUE,
+    wrap       = FALSE,
+    resizable  = TRUE,
+    searchable = FALSE,
+    compact    = TRUE,
+    pagination = FALSE,
+    elementId  = element_id,
+    fullWidth  = TRUE,
+    height     = 1000,
+    width      = "auto",
+    onClick    = "expand",
+    defaultColDef = reactable::colDef(maxWidth = 10000, minWidth = 100)
+  )
+  if (!is.null(row_style_fn))    args$rowStyle <- row_style_fn
+  if (!is.null(fixed_row_style)) args$rowStyle <- fixed_row_style
+
+  htmltools::tagList(
+    tags$div(style = "height:400px; overflow-y:auto;",
+             do.call(reactable::reactable, args)),
+    tags$div(download_btn(element_id))
+  )
+}
+```
+
+# General informations
+
+## Row {height=50%}
+
+### Column {width=86%}
+
+```{r}
+#| title: "Diffusion network"
+#| expandable: true
+set.seed(123)
+visNetwork::visIgraph(g_global, physics = FALSE) %>%
+  visNetwork::visOptions(
+    highlightNearest = list(enabled = TRUE, hover = FALSE),
+    selectedBy = "type"
+  )
+```
+
+### Column {width=14%}
+
+### ValueBox Grid {layout-ncol=2}
+
+```{r}
+#| content: valuebox
+#| title: "Number of nodes"
+igraph::vcount(g)
+```
+
+```{r}
+#| content: valuebox
+#| title: "Input nodes"
+list(
+  value = sum(g_attr$input_diffusion),
+  title = htmltools::HTML('<i class="bi bi-diagram-3"></i> Input nodes')
+)
+```
+
+```{r}
+#| content: valuebox
+#| title: "Nb. Genes"
+list(color = gene_color, value = sum(g_attr$type == "gene"))
+```
+
+```{r}
+#| content: valuebox
+#| title: "Nb. Proteins"
+list(color = protein_color, value = sum(g_attr$type == "protein"))
+```
+
+### Column {width=7%}
+
+```{r}
+#| content: valuebox
+#| title: "Nb. Pathways"
+list(color = pathway_color, value = sum(g_attr$type == "pathway"))
+```
+
+```{r}
+#| content: valuebox
+#| title: "Nb. Drugs"
+list(color = drug_color, value = sum(g_attr$type == "drug/compound"))
+```
+
+```{r}
+#| content: valuebox
+#| title: "Nb. GOs"
+list(color = go_color, value = sum(g_attr$type == "GO"))
+```
+
+```{r}
+#| content: valuebox
+#| title: "Nb. Side Effects"
+list(color = se_color, value = sum(g_attr$type == "side_effect"))
+```
+
+## Row {height=50%}
+
+### Column {width=30%}
+
+```{r}
+#| title: "General enrichment"
+#| expandable: true
+try(res_report$radar_plots_data$interest %>%
+      CENetwork:::make_ggradar(max.upper.limit = 30, interactive = TRUE))
+```
+
+### Column {width=70% .tabset .flow}
+
+#### Input
+
+<div style="height: 450px; overflow-y: auto;">
+
+```{r}
+#| results: asis
+scrollable_reactable(
+  tab_input %>% dplyr::select(display_name, name, everything()),
+  element_id    = "degree-table",
+  row_style_fn  = row_color_style(tab_input),
+  fixed_row_style = NULL
+)
+```
+
+</div>
+
+#### All vertex attributes
+
+<div style="height: 450px; overflow-y: auto;">
+
+```{r}
+#| results: asis
+scrollable_reactable(
+  g_attr,
+  element_id   = "attr-table",
+  row_style_fn = row_color_style(g_attr)
+)
+```
+
+</div>
+
+#### Most visited nodes
+
+<div style="height: 450px; overflow-y: auto;">
+
+Each input seed generates a path to the final subnetwork; some nodes may be visited multiple times.
+
+```{r}
+#| results: asis
+scrollable_reactable(
+  res_report$visite_autoraute,
+  element_id   = "attr-autoroute",
+  row_style_fn = row_color_style(res_report$visite_autoraute)
+)
+```
+
+</div>
+
+# Drugs
+
+## Row {height=50%}
+
+### Column {width=50%}
+
+```{r}
+#| title: "Drugs — Targets | Drugs — Side-effects"
+set.seed(123)
+visNetwork::visIgraph(g_drugs, physics = FALSE) %>%
+  visNetwork::visOptions(highlightNearest = list(enabled = TRUE, hover = FALSE))
+```
+
+### Column {width=50%}
+
+```{r}
+#| title: "DILI and SE Severity enrichment"
+DILI_enrich_plot <- ggplot(
+  stat_enrich_drugs %>%
+    mutate(type = ifelse(str_detect(name, "SE"), "SE Severity", "DILI")) %>%
+    mutate(shape = ifelse(ki_length == 0, "blue", "red")) %>%
+    mutate(name = str_remove(name, "SE Severity: ")) %>%
+    mutate(name = factor(name, levels = rev(.$name))),
+  aes(y = name, x = -log10(padj))
+) +
+  geom_point(aes(color = shape)) +
+  ylab("") +
+  geom_vline(xintercept = -log10(0.05), linetype = "dotted", color = "grey") +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  scale_color_identity() +
+  facet_wrap(type ~ ., dir = "v", scales = "free_y") +
+  coord_cartesian(xlim = c(0, -log10(0.00001)))
+
+ggplotly(DILI_enrich_plot)
+```
+
+## Row {height=50%}
+
+### Column {width=100% .tabset .flow}
+
+#### Drug info
+
+<div style="height: 450px; overflow-y: auto;">
+
+```{r}
+#| results: asis
+scrollable_reactable(
+  res_report$drugs,
+  element_id      = "attr-drugs-infos",
+  fixed_row_style = list(background = colorspace::lighten(drug_color, amount = 0.9))
+)
+```
+
+</div>
+
+#### Targets
+
+<div style="height: 450px; overflow-y: auto;">
+
+```{r}
+#| results: asis
+scrollable_reactable(
+  res_report$drugs.targets,
+  element_id      = "attr-drugs-targets",
+  fixed_row_style = list(background = colorspace::lighten(protein_color, amount = 0.9))
+)
+```
+
+</div>
+
+#### Side Effects
+
+<div style="height: 450px; overflow-y: auto;">
+
+```{r}
+#| results: asis
+scrollable_reactable(
+  res_report$drugs.side_effect,
+  element_id      = "attr-drugs-SE",
+  fixed_row_style = list(background = colorspace::lighten(se_color, amount = 0.9))
+)
+```
+
+</div>
+
+#### Shortest distance from input
+
+<div style="height: 450px; overflow-y: auto;">
+
+```{r}
+#| results: asis
+scrollable_reactable(
+  res_report$drug.dist.signature %>% arrange(distance),
+  element_id = "attr-drugs-dist-input"
+)
+```
+
+</div>
+
+# Pathways
+
+## Row {height=50%}
+
+```{r}
+#| title: "Pathways — Proteins"
+set.seed(123)
+visNetwork::visIgraph(g_pathway, physics = FALSE) %>%
+  visNetwork::visOptions(
+    highlightNearest = list(enabled = TRUE, hover = FALSE),
+    nodesIdSelection = TRUE
+  )
+```
+
+```{r}
+#| title: "Pathway global enrichment"
+gost_plot_path
+```
+
+## Row {height=50%}
+
+### Column {width=100% .tabset .flow}
+
+#### Pathway info
+
+<div style="height: 450px; overflow-y: auto;">
+
+```{r}
+#| results: asis
+scrollable_reactable(
+  pathways_display,
+  element_id      = "attr-pathway",
+  fixed_row_style = list(background = colorspace::lighten(pathway_color, amount = 0.9))
+)
+```
+
+</div>
+
+#### Shortest distance from input
+
+<div style="height: 450px; overflow-y: auto;">
+
+```{r}
+#| results: asis
+scrollable_reactable(
+  res_report$pathway.dist.signature,
+  element_id = "attr-pathway-dist-signature"
+)
+```
+
+</div>
+
+# GO terms
+
+## Row {height=50%}
+
+```{r}
+#| title: "GO — Genes | GO — Proteins"
+set.seed(123)
+visNetwork::visIgraph(g_gos, physics = FALSE) %>%
+  visNetwork::visOptions(highlightNearest = list(enabled = TRUE, hover = FALSE))
+```
+
+```{r}
+#| title: "GO global enrichment"
+gost_plot_go
+```
+
+## Row {height=50%}
+
+### Column {width=100% .tabset .flow}
+
+#### GO terms info
+
+<div style="height: 450px; overflow-y: auto;">
+
+```{r}
+#| results: asis
+scrollable_reactable(
+  GOs_display,
+  element_id      = "attr-go",
+  fixed_row_style = list(background = colorspace::lighten(go_color, amount = 0.9))
+)
+```
+
+</div>
+
+#### Shortest distance from input
+
+<div style="height: 450px; overflow-y: auto;">
+
+```{r}
+#| results: asis
+scrollable_reactable(
+  res_report$GO.dist.signature,
+  element_id = "attr-go-dist-signature"
+)
+```
+
+</div>
+
+# Modules
+
+## Row {height=50%}
+
+```{r}
+#| title: "Modules sub-network"
+#| expandable: true
+set.seed(123)
+visNetwork::visIgraph(g_proteins, physics = FALSE) %>%
+  visNetwork::visOptions(
+    highlightNearest = list(enabled = TRUE, hover = FALSE),
+    nodesIdSelection = TRUE,
+    selectedBy = "module"
+  )
+```
+
+```{r}
+#| title: "Module Overrepresentation"
+Module_enrich_plot <- ggplot(
+  graph_module_info %>%
+    mutate(shape = ifelse(k == 0, "blue", "red")) %>%
+    arrange(desc(padj)) %>%
+    mutate(module = factor(module, levels = rev(.$module))),
+  aes(y = module, x = -log10(padj))
+) +
+  geom_point(aes(color = shape)) +
+  ylab("") +
+  geom_vline(xintercept = -log10(0.05), linetype = "dotted", color = "grey") +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  scale_color_identity() +
+  coord_cartesian(xlim = c(0, -log10(0.00001)))
+
+ggplotly(Module_enrich_plot)
+```
+
+## Row {height=50%}
+
+```{r}
+#| title: "Enrichment in Toxic modules"
+try(res_report$radar_plots_data$module_GOTox %>%
+      CENetwork:::make_ggradar(max.upper.limit = 30, interactive = TRUE))
+```
+
+```{r}
+#| title: "Module enrichment table"
+DT::datatable(graph_module_info)
+```

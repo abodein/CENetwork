@@ -15,7 +15,6 @@
 
 #' @importFrom igraph V as_adjacency_matrix
 #' @importFrom Matrix Diagonal colSums t solve
-#' @import netOmics
 #'
 #' @examples
 #' library(igraph)
@@ -33,7 +32,7 @@
 
 RWR_build_complete <- function(X, restart = 0.7, verbose = TRUE)
 {
-    Xi <- netOmics:::remove_unconnected_nodes(X)
+    Xi <- remove_unconnected_nodes(X)
     seed_xi <- igraph::V(Xi)$name
     n <- length(seed_xi)
 
@@ -190,7 +189,7 @@ get_all_routes <- function(network, closest_dfr) {
 #' Run RWR_build_complete, generate_closest_dfr and get_all_routes
 #'
 #' @param X network
-#'
+#' 
 pipeline_RWR <- function(X){
     res_tmp_matrix <- RWR_build_complete(X)
     closest_dfr    <- generate_closest_dfr(network = X, res_tmp_matrix = res_tmp_matrix)

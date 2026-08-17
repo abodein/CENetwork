@@ -2,8 +2,21 @@
 title: "CENetwork"
 subtitle: "Liver Network Diffusion"
 output:
-  BiocStyle::html_document:
-      df_print: paged
+  html_document:
+    theme:
+      version: 5
+      bootswatch: cosmo
+      primary: "#0b6e99"
+      base_font: {google: "Source Sans 3"}
+      code_font: {google: "JetBrains Mono"}
+    toc: true
+    toc_float:
+      collapsed: false
+    toc_depth: 2
+    number_sections: true
+    code_folding: show
+    df_print: paged
+    fig_caption: true
 vignette: >
   %\VignetteIndexEntry{CENetwork – Liver Network Diffusion}
   %\VignetteEngine{knitr::rmarkdown}
@@ -76,8 +89,8 @@ Reactome (pathways), and two hepatotoxicity GO term lists
 ## Load data
 
 ```{r load_data}
-data(liver_1.7_network)
-data(liver_1.7_rwr_closest_dfr)
+data(liver_1.8_network)
+data(liver_1.8_rwr_closest_dfr)
 data(signature_maison)
 
 # Gene signature for acetaminophen (APAP)
@@ -92,8 +105,8 @@ seeds of interest and assembles all shortest paths into a subnetwork.
 
 ```{r getroute}
 diffusion_apap <- get_route(
-  network        = liver_1.7_network,
-  closest_dfr    = liver_1.7_rwr_closest_dfr,
+  network        = liver_1.8_network,
+  closest_dfr    = liver_1.8_rwr_closest_dfr,
   signature_vids = signature_acetaminophen,
   target_type    = c("drug/compound", "pathway", "side_effect")
 )
@@ -112,8 +125,8 @@ These nodes are added to `signature_vids` before filtering.
 ```{r mandatory}
 # Force the acetaminophen DrugBank node (DB00316) into the route
 diffusion_apap_anchored <- get_route(
-  network         = liver_1.7_network,
-  closest_dfr     = liver_1.7_rwr_closest_dfr,
+  network         = liver_1.8_network,
+  closest_dfr     = liver_1.8_rwr_closest_dfr,
   signature_vids  = signature_acetaminophen,
   target_type     = c("drug/compound", "pathway", "side_effect"),
   mandatory_nodes = "DB00316"
@@ -145,8 +158,8 @@ When `mandatory_nodes` are specified they are **fixed** across all permutations
 
 ```{r permut}
 diffusion_apap_permut <- get_route(
-  network         = liver_1.7_network,
-  closest_dfr     = liver_1.7_rwr_closest_dfr,
+  network         = liver_1.8_network,
+  closest_dfr     = liver_1.8_rwr_closest_dfr,
   signature_vids  = signature_maison$`acetaminophen_all_all`,
   target_type     = c("drug/compound", "pathway", "GO", "side_effect"),
   mandatory_nodes = "DB00316",
@@ -184,8 +197,8 @@ The following example runs the full pipeline for two hepatotoxic drugs and
 compares their enriched GO terms.
 
 ```{r usecase, eval = FALSE}
-data(liver_1.7_network)
-data(liver_1.7_rwr_closest_dfr)
+data(liver_1.8_network)
+data(liver_1.8_rwr_closest_dfr)
 data(signature_maison)
 
 target_layers <- c("side_effect", "GO", "drug/compound", "pathway")
@@ -194,8 +207,8 @@ target_layers <- c("side_effect", "GO", "drug/compound", "pathway")
 sig_apap <- signature_maison$`acetaminophen_all_all`
 
 res_apap <- get_route(
-  network         = liver_1.7_network,
-  closest_dfr     = liver_1.7_rwr_closest_dfr,
+  network         = liver_1.8_network,
+  closest_dfr     = liver_1.8_rwr_closest_dfr,
   signature_vids  = sig_apap,
   target_type     = target_layers,
   mandatory_nodes = "DB00316",
@@ -211,8 +224,8 @@ enrich_apap <- compute_diffusion_enrichment(res_apap,
 sig_vpa <- signature_maison$`valproic acid_all_all`
 
 res_vpa <- get_route(
-  network         = liver_1.7_network,
-  closest_dfr     = liver_1.7_rwr_closest_dfr,
+  network         = liver_1.8_network,
+  closest_dfr     = liver_1.8_rwr_closest_dfr,
   signature_vids  = sig_vpa,
   target_type     = target_layers,
   mandatory_nodes = "DB00313",
@@ -249,52 +262,36 @@ code that generated them is shown below for reference.
 data(comparison_ora_gsea)
 ```
 
-## Venn diagrams
+## Comparing the three methods
 
-Each panel compares the three methods on a common network-constrained background
-(GOTox or Reactome pathway nodes present in the liver network).  Diffusion-unique
-terms reflect topological signal invisible to gene-level methods.
+Each method is applied to the same term universe — the GO and Reactome nodes of the
+liver network — so the sets are directly comparable.  The figure below shows, for
+every term significant in at least one method, what the other two made of it.
 
-```{r comparison_venn, fig.width = 10, fig.height = 10}
-library(ggvenn)
-library(patchwork)
+Three states are distinguished, which a Venn diagram cannot express: a term may be
+**significant**, **tested but not significant**, or **never tested** at all.
+Collapsing the last two into a single "absent" category is what makes set diagrams
+misleading here.
 
-venn_colors <- c("#fff9be", "#bdf4ff", "#ffbdda")
+Only two methods can genuinely leave a term untested: the diffusion, when the node is
+never visited from the seeds, and GSEA, when the gene set falls outside the 10–500 gene
+range it scores.  ORA always has a verdict — `enrichGO()` / `enrichPathway()` only
+report gene sets sharing at least one gene with the signature, so a term missing from
+their output has a zero overlap, i.e. p = 1.  It is drawn as tested and not
+significant, not as untested.
 
-g1 <- ggvenn::ggvenn(
-  list("Diffusion" = comparison_ora_gsea$diffusion_go_apap,
-       "ORA"       = comparison_ora_gsea$ora_go_apap$ID,
-       "GSEA"      = comparison_ora_gsea$gsea_go_apap$ID),
-  fill_color = venn_colors, text_size = 4, set_name_size = 4,
-  show_percentage = FALSE
-) + ggplot2::ggtitle("A. Acetaminophen – GO terms")
-
-g2 <- ggvenn::ggvenn(
-  list("Diffusion" = comparison_ora_gsea$diffusion_pathway_apap,
-       "ORA"       = comparison_ora_gsea$ora_reactome_apap$ID,
-       "GSEA"      = comparison_ora_gsea$gsea_reactome_apap$ID),
-  fill_color = venn_colors, text_size = 4, set_name_size = 4,
-  show_percentage = FALSE
-) + ggplot2::ggtitle("B. Acetaminophen – Reactome")
-
-g3 <- ggvenn::ggvenn(
-  list("Diffusion" = comparison_ora_gsea$diffusion_go_vpa,
-       "ORA"       = comparison_ora_gsea$ora_go_vpa$ID,
-       "GSEA"      = comparison_ora_gsea$gsea_go_vpa$ID),
-  fill_color = venn_colors, text_size = 4, set_name_size = 4,
-  show_percentage = FALSE
-) + ggplot2::ggtitle("C. Valproic acid – GO terms")
-
-g4 <- ggvenn::ggvenn(
-  list("Diffusion" = comparison_ora_gsea$diffusion_pathway_vpa,
-       "ORA"       = comparison_ora_gsea$ora_reactome_vpa$ID,
-       "GSEA"      = comparison_ora_gsea$gsea_reactome_vpa$ID),
-  fill_color = venn_colors, text_size = 4, set_name_size = 4,
-  show_percentage = FALSE
-) + ggplot2::ggtitle("D. Valproic acid – Reactome")
-
-(g1 + g2) / (g3 + g4)
+```{r comparison_dotplot, echo = FALSE, out.width = "100%"}
+knitr::include_graphics("img/comparison_dotplot.png")
 ```
+
+Every term significant for at least one method is shown, without truncation.  Point
+area encodes `-log10(q)`; the three methods rest on different statistics (permutation
+z-score, hypergeometric test, weighted Kolmogorov-Smirnov), so areas compare within a
+column, not across columns.
+
+On `liver_1.8` the three methods barely overlap: no term is significant for all
+three in any panel, and pairwise overlaps range from 0 to 2 terms.  The per-term
+tables are in `results/comparison_ora_gsea.xlsx`.
 
 ## Code used to generate `comparison_ora_gsea`
 
@@ -306,12 +303,12 @@ library(org.Hs.eg.db)
 library(clusterProfiler)
 library(ReactomePA)
 
-GOTox <- igraph::vertex_attr(liver_1.7_network) |>
+GOTox <- igraph::vertex_attr(liver_1.8_network) |>
   as.data.frame() |>
   dplyr::filter(type == "GO") |>
   dplyr::pull(name)
 
-pathway_background <- igraph::vertex_attr(liver_1.7_network) |>
+pathway_background <- igraph::vertex_attr(liver_1.8_network) |>
   as.data.frame() |>
   dplyr::filter(type == "pathway") |>
   dplyr::pull(name)
@@ -395,12 +392,12 @@ dashboard (`.qmd` → HTML) that brings together the subnetwork summary, drug
 table, pathway and GO enrichment results, and the ORA radar plots.
 
 ```{r dashboard, eval = FALSE}
-res_report_apap <- report(res_apap, complete_network = liver_1.7_network)
+res_report_apap <- report(res_apap, complete_network = liver_1.8_network)
 
 produce_quarto_dashboard(
   res_report       = res_report_apap,
   res_diffusion    = res_apap,
-  complete_network = liver_1.7_network,
+  complete_network = liver_1.8_network,
   title            = "Acetaminophen – liver network diffusion",
   output_filepath  = "dashboard_apap.qmd",
   se_to_severity   = se_to_severity,

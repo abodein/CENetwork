@@ -64,8 +64,6 @@
 #' igraph::vertex_attr(res.diffusion$network, "visit_count")
 #' igraph::vertex_attr(res.diffusion$network, "z_score")
 #'
-#' @importFrom netOmics random_walk_restart
-#' @importFrom netOmics rwr_find_closest_type
 #' @importFrom igraph induced_subgraph shortest_paths vertex_attr as_data_frame
 #' @importFrom purrr map2 keep is_empty
 #' @importFrom AnnotationDbi select
