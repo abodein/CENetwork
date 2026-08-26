@@ -25,3 +25,7 @@ data-raw/liver/ressources/
 
 # Local working files
 autre/
+
+# Build artifacts and superseded local data
+vignettes/vignette.html
+data-raw/liver/liver_1.6_network.Rds
