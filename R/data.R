@@ -97,6 +97,22 @@
 "module_ppi_M1_20231211"
 
 
+#' Side-effect severity mapping
+#'
+#' Maps side-effect names (as they appear on the \code{side_effect} network
+#' layer) to a clinical severity level, for use as the \code{se_to_severity}
+#' argument of \code{produce_quarto_dashboard()}.
+#'
+#' @format a data.frame with 6,108 rows and columns:
+#' \describe{
+#'   \item{se}{character; side-effect name.}
+#'   \item{max_severity}{character; one of \code{"Mild"}, \code{"Moderate"},
+#'     \code{"Severe"}, \code{"Lifethreatening"}, \code{"Death"}.}
+#' }
+#'
+"se_to_severity"
+
+
 #' ORA and GSEA comparison results for APAP and VPA
 #'
 #' Pre-computed enrichment results for acetaminophen (APAP) and valproic acid

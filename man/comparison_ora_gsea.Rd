@@ -27,7 +27,7 @@ comparison_ora_gsea
 \description{
 Pre-computed enrichment results for acetaminophen (APAP) and valproic acid
 (VPA) from three methods — network diffusion, ORA, and GSEA — all filtered
-to the hepatotoxicity-specific background of \code{liver_1.7_network}.
+to the hepatotoxicity-specific background of \code{liver_1.8_network}.
 Intended for use in the vignette comparison section.
 }
 \details{

@@ -42,8 +42,10 @@ The workflow covers four steps:
 1. **Diffusion** — `get_route()` builds the subnetwork from seed molecules.
 2. **Enrichment** — `compute_diffusion_enrichment()` identifies significantly
    visited nodes using permutation-based z-scores.
-3. **Export** — `export_to_cytoscape()` sends the subnetwork to Cytoscape for
-   visual exploration.
+3. **Visualise** — `viz_network()` renders the subnetwork as a self-contained
+   interactive widget (no external application required), or
+   `export_to_cytoscape()` sends it to Cytoscape for advanced styling and
+   layout.
 4. **Dashboard** — `produce_quarto_dashboard()` generates an interactive HTML
    dashboard summarising all results.
 
@@ -388,15 +390,24 @@ gsea_reactome_vpa  <- run_gsea_reactome(scores_vpa)
 # Dashboard
 
 `produce_quarto_dashboard()` generates a self-contained interactive Quarto
-dashboard (`.qmd` → HTML) that brings together the subnetwork summary, drug
-table, pathway and GO enrichment results, and the ORA radar plots.
+dashboard (`.qmd` → HTML) that brings together the diffusion subnetwork as an
+interactive graph (the same rendering as `viz_network()` above, styled and
+laid out per node type), the drug table, pathway and GO enrichment results,
+and the ORA radar plots. It is the more complete alternative to
+`viz_network()`: a single HTML file a reviewer or collaborator can open and
+explore without R.
+
+Rendering requires the `quarto` package and the
+[Quarto CLI](https://quarto.org/docs/get-started/), so this chunk is not run
+when the vignette is built.
 
 ```{r dashboard, eval = FALSE}
-res_report_apap <- report(res_apap, complete_network = liver_1.8_network)
+data(se_to_severity)
+res_report_apap <- report(diffusion_apap_permut, complete_network = liver_1.8_network)
 
 produce_quarto_dashboard(
   res_report       = res_report_apap,
-  res_diffusion    = res_apap,
+  res_diffusion    = diffusion_apap_permut,
   complete_network = liver_1.8_network,
   title            = "Acetaminophen – liver network diffusion",
   output_filepath  = "dashboard_apap.qmd",
@@ -408,6 +419,7 @@ produce_quarto_dashboard(
 
 The dashboard provides:
 
+- **Diffusion network** — the interactive subnetwork graph, coloured by node type
 - **Network summary** — node count per layer, degree distribution of input seeds
 - **Drugs** — DILI scores, targets, side effects
 - **Pathways & GO terms** — enrichment table with z-score, p-value, padj
@@ -415,7 +427,43 @@ The dashboard provides:
 - **ORA radar** — over-representation of hepatotoxicity-linked node sets
 
 
+# Interactive visualisation
+
+`viz_network()` renders a `get_route()` subnetwork as a self-contained
+[visNetwork](https://datastorm-open.github.io/visNetwork/) widget: nodes are
+coloured by layer type and labelled with their human-readable name, seed
+nodes are highlighted, and the widget can be dragged, zoomed, and clicked to
+highlight a node's neighbourhood. Unlike `export_to_cytoscape()` below, it
+needs no external application and embeds directly in an HTML report or this
+vignette.
+
+```{r vizapap}
+# Re-uses diffusion_apap_permut computed above (acetaminophen, with GO layer)
+viz_network(diffusion_apap_permut)
+```
+
+Same for valproic acid (no permutation needed here, only the subnetwork):
+
+```{r vizvpa}
+diffusion_vpa <- get_route(
+  network        = liver_1.8_network,
+  closest_dfr    = liver_1.8_rwr_closest_dfr,
+  signature_vids = signature_maison$`valproic acid_all_all`,
+  target_type    = c("drug/compound", "pathway", "GO", "side_effect")
+)
+viz_network(diffusion_vpa)
+```
+
+The widget can be saved as a standalone HTML file for sharing:
+
+```{r vizsave, eval = FALSE}
+htmlwidgets::saveWidget(viz_network(diffusion_apap_permut), "subnetwork_apap.html")
+```
+
 # Export to Cytoscape
+
+For advanced styling and manual layout, `export_to_cytoscape()` sends the
+subnetwork to a running Cytoscape session instead.
 
 ```{r cyto, eval = FALSE}
 export_to_cytoscape(res_apap)

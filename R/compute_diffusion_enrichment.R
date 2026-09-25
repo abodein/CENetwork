@@ -25,7 +25,7 @@
 #'   \describe{
 #'     \item{term}{Node name (GO ID or Reactome pathway ID)}
 #'     \item{label}{Human-readable label when available (vertex attribute
-#'       \code{label}; \code{NA} otherwise)}
+#'       \code{display_name}; \code{NA} otherwise)}
 #'     \item{type}{Layer type (\code{"GO"} or \code{"pathway"})}
 #'     \item{visit_count}{Observed number of shortest paths through this node}
 #'     \item{mean_perm}{Mean visit count across permutations}
@@ -125,7 +125,7 @@ compute_diffusion_enrichment <- function(route_result,
 
     # --- Assemble output ------------------------------------------------------
 
-    label_col <- if ("label" %in% colnames(target_df)) target_df$label else NA_character_
+    label_col <- if ("display_name" %in% colnames(target_df)) target_df$display_name else NA_character_
 
     result_df <- data.frame(
         term        = target_nodes,

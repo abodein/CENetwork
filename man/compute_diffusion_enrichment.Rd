@@ -31,7 +31,7 @@ A data frame with one row per tested term, sorted by \code{padj}
   \describe{
     \item{term}{Node name (GO ID or Reactome pathway ID)}
     \item{label}{Human-readable label when available (vertex attribute
-      \code{label}; \code{NA} otherwise)}
+      \code{display_name}; \code{NA} otherwise)}
     \item{type}{Layer type (\code{"GO"} or \code{"pathway"})}
     \item{visit_count}{Observed number of shortest paths through this node}
     \item{mean_perm}{Mean visit count across permutations}
